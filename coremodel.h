@@ -44,6 +44,9 @@ typedef struct {
 } coremodel_device_list_t;
 coremodel_device_list_t *coremodel_list(void);
 
+/* Frees a device list */
+void coremodel_free_list(coremodel_device_list_t *list);
+
 /* UART */
 
 typedef struct {
@@ -102,8 +105,11 @@ typedef struct {
  *  addr        7-bit address to attach
  *  func        set of function callbacks to attach
  *  priv        priv value to pass to each callback
+ *  flags       behavior flags of device
  * Returns handle of I2C interface, or NULL on failure. */
-void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv);
+#define COREMODEL_I2C_START_ACK 0x0001  /* device must ACK all starts */
+#define COREMODEL_I2C_WRITE_ACK 0x0002  /* device must ACK all writes */
+void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv, uint16_t flags);
 
 /* Push unsolicited I2C READ data. Used to lower access latency.
  *  i2c         handle of I2C interface
@@ -133,12 +139,14 @@ typedef struct {
  *  csel        chip select index
  *  func        set of function callbacks to attach
  *  priv        priv value to pass to each callback
+ *  flags       behavior flags of device
  * Returns handle of SPI interface, or NULL on failure. */
-void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv);
+#define COREMODEL_SPI_BLOCK     0x0001  /* device must handle >1 byte transfers */
+void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
 
 /* Unstall a stalled interface (signal that CoreModel can once again call
  * func->xfr).
- * spi          handle of SPI interface
+ *  spi         handle of SPI interface
  */
 void coremodel_spi_ready(void *spi);
 

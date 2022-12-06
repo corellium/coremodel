@@ -376,6 +376,16 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
     return coremodel_attach_int(COREMODEL_GPIO, name, pin, func, priv, 0);
 }
 
+static void coremodel_ready_int(void *handle)
+{
+    struct coremodel_if *cif = handle;
+
+    if(cif) {
+        cif->busy = 0;
+        coremodel_advance_if(cif);
+    }
+}
+
 static int coremodel_advance_if_uart(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
     int res;
@@ -437,12 +447,7 @@ int coremodel_uart_rx(void *uart, unsigned len, uint8_t *data)
 
 void coremodel_uart_txrdy(void *uart)
 {
-    struct coremodel_if *cif = uart;
-
-    if(cif) {
-        cif->busy = 0;
-        coremodel_advance_if(cif);
-    }
+    coremodel_ready_int(uart);
 }
 
 static int coremodel_advance_if_i2c(struct coremodel_if *cif, struct coremodel_packet *pkt)
@@ -510,7 +515,7 @@ static int coremodel_advance_if_i2c(struct coremodel_if *cif, struct coremodel_p
         cif->offs = 0;
         npkt.len = 8 + pkt->bflag;
         coremodel_push_packet(&npkt, cif->rdbuf);
-        break;
+        return 0;
 
     case PKT_I2C_STOP:
         if(cif->i2cf->stop)
@@ -541,24 +546,74 @@ int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data)
 
 void coremodel_i2c_ready(void *i2c)
 {
-    struct coremodel_if *cif = i2c;
-
-    if(cif) {
-        cif->busy = 0;
-        coremodel_advance_if(cif);
-    }
+    coremodel_ready_int(i2c);
 }
 
 static int coremodel_advance_if_spi(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
-    //
+    int res;
+    struct coremodel_packet npkt = { .pkt = PKT_SPI_RX };
+
+    switch(pkt->pkt) {
+    case PKT_SPI_CS:
+        if(cif->spif->cs)
+            cif->spif->cs(cif->priv, pkt->bflag & 1);
+        return 0;
+    case PKT_SPI_TX:
+        if(cif->busy)
+            return 1;
+        cif->trnidx = pkt->hflag;
+        res = (pkt->len - 8) - cif->offs;
+        if(res > 256)
+            res = 256;
+        if(cif->spif->xfr)
+            res = cif->spif->xfr(cif->priv, res, pkt->data + cif->offs, cif->rdbuf + cif->offs);
+        if(!res) {
+            cif->busy = 1;
+            return 1;
+        }
+        cif->offs += res;
+        if(cif->offs < pkt->len - 8)
+            return 1;
+        cif->offs = 0;
+        npkt.len = pkt->len;
+        npkt.conn = cif->conn;
+        npkt.hflag = cif->trnidx;
+        coremodel_push_packet(&npkt, cif->rdbuf);
+        return 0;
+    }
+
     return 0;
+}
+
+void coremodel_spi_ready(void *spi)
+{
+    coremodel_ready_int(spi);
 }
 
 static int coremodel_advance_if_gpio(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
-    //
+    switch(pkt->pkt) {
+    case PKT_GPIO_UPDATE:
+        if(cif->gpiof->notify)
+            cif->gpiof->notify(cif->priv, (int16_t)pkt->hflag);
+        return 0;
+    }
     return 0;
+}
+
+void coremodel_gpio_set(void *pin, unsigned drven, int mvolt)
+{
+    struct coremodel_if *cif = pin;
+    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_I2C_DONE };
+
+    if(!cif)
+        return;
+
+    pkt.conn = cif->conn;
+    pkt.bflag = !!drven;
+    pkt.hflag = mvolt;
+    coremodel_push_packet(&pkt, NULL);
 }
 
 static void coremodel_advance_if(struct coremodel_if *cif)

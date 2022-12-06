@@ -343,8 +343,6 @@ static void *coremodel_attach_int(unsigned type, const char *name, unsigned addr
         return NULL;
     }
     coremodel_conn_if = NULL;
-    cif->next = coremodel_ifs;
-    coremodel_ifs = cif;
     return cif;
 }
 
@@ -354,6 +352,10 @@ static int coremodel_process_conn_response(struct coremodel_packet *pkt)
         coremodel_conn_if->conn = pkt->hflag;
         if(pkt->len >= 12)
             coremodel_conn_if->cred = *(uint32_t *)pkt->data;
+        if(pkt->hflag != CONN_QUERY) {
+            coremodel_conn_if->next = coremodel_ifs;
+            coremodel_ifs = coremodel_conn_if;
+        }
         coremodel_query = 0;
     }
     return 0;

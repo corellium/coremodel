@@ -114,8 +114,9 @@ void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_f
 /* Push unsolicited I2C READ data. Used to lower access latency.
  *  i2c         handle of I2C interface
  *  len         number of bytes to send to the Rx interface
- *  data        data to send */
-void coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data);
+ *  data        data to send
+ * Returns number of bytes accepted. */
+int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data);
 
 /* Unstall a stalled interface (signal that CoreModel can once again call
  * func->start/write/read).

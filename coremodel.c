@@ -101,7 +101,7 @@ static unsigned coremodel_query = 0;
 
 static struct coremodel_if {
     struct coremodel_if *next;
-    uint16_t conn;
+    uint16_t conn, trnidx;
     unsigned type;
     unsigned cred, busy, offs;
     union {
@@ -116,6 +116,7 @@ static struct coremodel_if {
         struct coremodel_rxbuf *next;
         struct coremodel_packet pkt;
     } *rxbufs, **erxbufs;
+    uint8_t rdbuf[256];
 } *coremodel_ifs = NULL, *coremodel_conn_if = NULL;
 
 static int coremodel_mainloop_int(long long usec, unsigned query);
@@ -396,6 +397,7 @@ static int coremodel_advance_if_uart(struct coremodel_if *cif, struct coremodel_
             return 1;
         cif->offs = 0;
         return 0;
+
     case PKT_UART_RX_ACK:
         if(!cif->cred) {
             cif->cred += pkt->hflag;
@@ -404,6 +406,7 @@ static int coremodel_advance_if_uart(struct coremodel_if *cif, struct coremodel_
         } else
             cif->cred += pkt->hflag;
         return 0;
+
     case PKT_UART_BRK:
         if(cif->uartf->brk)
             cif->uartf->brk(cif->priv);
@@ -444,8 +447,106 @@ void coremodel_uart_txrdy(void *uart)
 
 static int coremodel_advance_if_i2c(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
-    //
+    struct coremodel_packet npkt = { .len = 8, .conn = cif->conn, .pkt = PKT_I2C_DONE };
+    int res;
+
+    if(cif->busy)
+        return 1;
+    cif->trnidx = pkt->hflag;
+    npkt.hflag = cif->trnidx;
+
+    switch(pkt->pkt) {
+    case PKT_I2C_START:
+        if(cif->i2cf->start)
+            res = cif->i2cf->start(cif->priv);
+        else
+            res = 1;
+        if(res == 0) {
+            cif->busy = 1;
+            return 1;
+        }
+        if(pkt->bflag & 1) {
+            npkt.bflag = (res < 0) ? 1 : 0;
+            coremodel_push_packet(&npkt, NULL);
+        }
+        return 0;
+
+    case PKT_I2C_WRITE:
+        if(cif->i2cf->write)
+            res = cif->i2cf->write(cif->priv, (pkt->len - 8) - cif->offs, pkt->data + cif->offs);
+        else
+            res = -1;
+        if(res == 0) {
+            cif->busy = 1;
+            return 1;
+        }
+        if(res < 0) {
+            if(pkt->bflag & 1) {
+                npkt.bflag = 1;
+                coremodel_push_packet(&npkt, NULL);
+            }
+            return 0;
+        }
+        cif->offs += res;
+        if(cif->offs < pkt->len - 8)
+            return 1;
+        cif->offs = 0;
+        if(pkt->bflag & 1)
+            coremodel_push_packet(&npkt, NULL);
+        return 0;
+
+    case PKT_I2C_READ:
+        if(cif->i2cf->read)
+            res = cif->i2cf->read(cif->priv, pkt->bflag - cif->offs, cif->rdbuf + cif->offs);
+        else
+            res = pkt->bflag - cif->offs;
+        if(res == 0) {
+            cif->busy = 1;
+            return 1;
+        }
+        cif->offs += res;
+        if(cif->offs < pkt->bflag)
+            return 1;
+        cif->offs = 0;
+        npkt.len = 8 + pkt->bflag;
+        coremodel_push_packet(&npkt, cif->rdbuf);
+        break;
+
+    case PKT_I2C_STOP:
+        if(cif->i2cf->stop)
+            cif->i2cf->stop(cif->priv);
+        return 0;
+    }
+
     return 0;
+}
+
+int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data)
+{
+    struct coremodel_if *cif = i2c;
+    struct coremodel_packet pkt = { .pkt = PKT_I2C_DONE };
+
+    if(!cif)
+        return 0;
+
+    if(len > 255)
+        len = 255;
+    pkt.len = 8 + len;
+    pkt.conn = cif->conn;
+    pkt.hflag = cif->trnidx;
+    if(coremodel_push_packet(&pkt, data))
+        return 0;
+    return len;
+}
+
+void coremodel_i2c_ready(void *i2c)
+{
+    struct coremodel_if *cif = i2c;
+
+    if(cif) {
+        cif->busy = 0;
+        coremodel_advance_if(cif);
+    }
 }
 
 static int coremodel_advance_if_spi(struct coremodel_if *cif, struct coremodel_packet *pkt)

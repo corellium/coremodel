@@ -103,7 +103,7 @@ static struct coremodel_if {
     struct coremodel_if *next;
     uint16_t conn;
     unsigned type;
-    unsigned cred, busy;
+    unsigned cred, busy, offs;
     union {
         const void *func;
         const coremodel_uart_func_t *uartf;
@@ -351,6 +351,8 @@ static int coremodel_process_conn_response(struct coremodel_packet *pkt)
 {
     if(coremodel_conn_if) {
         coremodel_conn_if->conn = pkt->hflag;
+        if(pkt->len >= 12)
+            coremodel_conn_if->cred = *(uint32_t *)pkt->data;
         coremodel_query = 0;
     }
     return 0;
@@ -373,41 +375,122 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
     return coremodel_attach_int(COREMODEL_GPIO, name, pin, func, priv, 0);
 }
 
-static void coremodel_advance_if_uart(struct coremodel_if *cif)
+static int coremodel_advance_if_uart(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
-    //
+    int res;
+
+    switch(pkt->pkt) {
+    case PKT_UART_TX:
+        if(cif->busy)
+            return 1;
+        if(cif->uartf->tx)
+            res = cif->uartf->tx(cif->priv, (pkt->len - 8) - cif->offs, pkt->data + cif->offs);
+        else
+            res = (pkt->len - 8) - cif->offs;
+        if(!res) {
+            cif->busy = 1;
+            break;
+        }
+        cif->offs += res;
+        if(cif->offs < pkt->len - 8)
+            return 1;
+        cif->offs = 0;
+        return 0;
+    case PKT_UART_RX_ACK:
+        if(!cif->cred) {
+            cif->cred += pkt->hflag;
+            if(cif->uartf->rxrdy)
+                cif->uartf->rxrdy(cif->priv);
+        } else
+            cif->cred += pkt->hflag;
+        return 0;
+    case PKT_UART_BRK:
+        if(cif->uartf->brk)
+            cif->uartf->brk(cif->priv);
+        return 0;
+    }
+
+    return 0;
 }
 
-static void coremodel_advance_if_i2c(struct coremodel_if *cif)
+int coremodel_uart_rx(void *uart, unsigned len, uint8_t *data)
 {
-    //
+    struct coremodel_if *cif = uart;
+    struct coremodel_packet pkt = { .pkt = PKT_UART_RX };
+
+    if(!cif || !cif->cred)
+        return 0;
+    if(len > cif->cred)
+        len = cif->cred;
+
+    pkt.len = 8 + len;
+    pkt.conn = cif->conn;
+    if(coremodel_push_packet(&pkt, data))
+        return 0;
+
+    cif->cred -= len;
+    return len;
 }
 
-static void coremodel_advance_if_spi(struct coremodel_if *cif)
+void coremodel_uart_txrdy(void *uart)
 {
-    //
+    struct coremodel_if *cif = uart;
+
+    if(cif) {
+        cif->busy = 0;
+        coremodel_advance_if(cif);
+    }
 }
 
-static void coremodel_advance_if_gpio(struct coremodel_if *cif)
+static int coremodel_advance_if_i2c(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
     //
+    return 0;
+}
+
+static int coremodel_advance_if_spi(struct coremodel_if *cif, struct coremodel_packet *pkt)
+{
+    //
+    return 0;
+}
+
+static int coremodel_advance_if_gpio(struct coremodel_if *cif, struct coremodel_packet *pkt)
+{
+    //
+    return 0;
 }
 
 static void coremodel_advance_if(struct coremodel_if *cif)
 {
-    switch(cif->type) {
-    case COREMODEL_UART:
-        coremodel_advance_if_uart(cif);
-        break;
-    case COREMODEL_I2C:
-        coremodel_advance_if_i2c(cif);
-        break;
-    case COREMODEL_SPI:
-        coremodel_advance_if_spi(cif);
-        break;
-    case COREMODEL_GPIO:
-        coremodel_advance_if_gpio(cif);
-        break;
+    struct coremodel_rxbuf *rxb;
+    int res;
+
+    while(cif->rxbufs) {
+        rxb = cif->rxbufs;
+        switch(cif->type) {
+        case COREMODEL_UART:
+            res = coremodel_advance_if_uart(cif, &rxb->pkt);
+            break;
+        case COREMODEL_I2C:
+            res = coremodel_advance_if_i2c(cif, &rxb->pkt);
+            break;
+        case COREMODEL_SPI:
+            res = coremodel_advance_if_spi(cif, &rxb->pkt);
+            break;
+        case COREMODEL_GPIO:
+            res = coremodel_advance_if_gpio(cif, &rxb->pkt);
+            break;
+        default:
+            res = 0;
+        }
+        if(res)
+            break;
+
+        rxb = cif->rxbufs;
+        cif->rxbufs = rxb->next;
+        if(!cif->rxbufs)
+            cif->erxbufs = &cif->rxbufs;
+        free(rxb);
     }
 }
 
@@ -433,7 +516,7 @@ static int coremodel_process_packet(struct coremodel_packet *pkt)
     if(!cif)
         return 0;
 
-    rxb = calloc(1, pkt->len);
+    rxb = calloc(1, sizeof(*rxb) + pkt->len - 8);
     if(!rxb)
         return 1;
     memcpy(&rxb->pkt, pkt, pkt->len);
@@ -468,7 +551,7 @@ static void coremodel_process_rxq(void)
         step = RX_BUF - offs;
         if(step < dlen) {
             memcpy(pkt, coremodel_rxq + offs, step);
-            memcpy(pkt + step, coremodel_rxq, 8 - step);
+            memcpy(pkt + step, coremodel_rxq, dlen - step);
             buf = pkt;
         } else
             buf = coremodel_rxq + offs;

@@ -6,6 +6,10 @@
 
 static int test_uart_tx(void *priv, unsigned len, uint8_t *data)
 {
+    unsigned idx;
+    for(idx=0; idx<len; idx++)
+        putchar(data[idx]);
+    fflush(stdout);
     return len;
 }
 
@@ -45,7 +49,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    //
+    coremodel_mainloop(-1);
 
     coremodel_detach(handle);
     coremodel_disconnect();

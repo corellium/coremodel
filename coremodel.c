@@ -33,6 +33,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
+#include <alloca.h>
 
 #include "coremodel.h"
 
@@ -98,7 +99,27 @@ static unsigned coremodel_device_list_size = 0;
 
 static unsigned coremodel_query = 0;
 
+static struct coremodel_if {
+    struct coremodel_if *next;
+    uint16_t conn;
+    unsigned type;
+    unsigned cred, busy;
+    union {
+        const void *func;
+        const coremodel_uart_func_t *uartf;
+        const coremodel_i2c_func_t *i2cf;
+        const coremodel_spi_func_t *spif;
+        const coremodel_gpio_func_t *gpiof;
+    };
+    void *priv;
+    struct coremodel_rxbuf {
+        struct coremodel_rxbuf *next;
+        struct coremodel_packet pkt;
+    } *rxbufs, **erxbufs;
+} *coremodel_ifs = NULL, *coremodel_conn_if = NULL;
+
 static int coremodel_mainloop_int(long long usec, unsigned query);
+static void coremodel_advance_if(struct coremodel_if *cif);
 
 int coremodel_connect(const char *target)
 {
@@ -167,7 +188,7 @@ int coremodel_connect(const char *target)
     return 0;
 }
 
-static int coremodel_push_packet(struct coremodel_packet *pkt)
+static int coremodel_push_packet(struct coremodel_packet *pkt, void *data)
 {
     unsigned len = pkt->len, dlen = (len + 3) & ~3;
     struct coremodel_txbuf *txb = calloc(1, sizeof(struct coremodel_txbuf) + dlen);
@@ -175,7 +196,11 @@ static int coremodel_push_packet(struct coremodel_packet *pkt)
     if(!txb)
         return 1;
     txb->size = dlen;
-    memcpy(txb->buf, pkt, len);
+    if(data) {
+        memcpy(txb->buf, pkt, 8);
+        memcpy(txb->buf + 8, data, len - 8);
+    } else
+        memcpy(txb->buf, pkt, len);
 
     *coremodel_etxbufs = txb;
     coremodel_etxbufs = &txb->next;
@@ -190,11 +215,15 @@ coremodel_device_list_t *coremodel_list(void)
 
     if(coremodel_query)
         return NULL;
-    if(coremodel_push_packet(&pkt))
+    if(coremodel_push_packet(&pkt, NULL))
         return NULL;
     coremodel_query = 1;
 
-    coremodel_mainloop_int(-1, 1);
+    if(coremodel_mainloop_int(-1, 1)) {
+        coremodel_free_list(coremodel_device_list);
+        coremodel_device_list = NULL;
+        coremodel_query = 0;
+    }
 
     res = coremodel_device_list;
     coremodel_device_list = NULL;
@@ -262,22 +291,156 @@ static int coremodel_process_list_response(struct coremodel_packet *pkt)
     coremodel_device_list[num].type = COREMODEL_INVALID;
 
     npkt.hflag = num;
-    return coremodel_push_packet(&npkt);
+    return coremodel_push_packet(&npkt, NULL);
+}
+
+static void *coremodel_attach_int(unsigned type, const char *name, unsigned addr, const void *func, void *priv, uint16_t flags)
+{
+    struct coremodel_if *cif;
+    struct coremodel_packet *pkt;
+    unsigned nlen = strlen(name);
+
+    if(coremodel_query)
+        return NULL;
+
+    cif = calloc(1, sizeof(struct coremodel_if));
+    if(!cif)
+        return NULL;
+
+    pkt = alloca(sizeof(*pkt) + 8 + nlen);
+    memset(pkt, 0, sizeof(*pkt));
+    pkt->len = 16 + nlen;
+    pkt->conn = CONN_QUERY;
+    pkt->pkt = PKT_QUERY_REQ_CONN;
+    pkt->hflag = flags;
+    *(uint16_t *)pkt->data = type;
+    *(uint16_t *)(pkt->data + 2) = nlen;
+    *(uint32_t *)(pkt->data + 4) = addr;
+    memcpy(pkt->data + 8, name, nlen);
+    if(coremodel_push_packet(pkt, NULL)) {
+        free(cif);
+        return NULL;
+    }
+
+    cif->conn = CONN_QUERY;
+    cif->type = type;
+    cif->func = func;
+    cif->priv = priv;
+    cif->erxbufs = &cif->rxbufs;
+    coremodel_conn_if = cif;
+    coremodel_query = 1;
+
+    if(coremodel_mainloop_int(-1, 1)) {
+        coremodel_query = 0;
+        coremodel_conn_if = NULL;
+        cif->conn = CONN_QUERY;
+    }
+
+    if(cif->conn == CONN_QUERY) {
+        free(coremodel_conn_if);
+        coremodel_conn_if = NULL;
+        return NULL;
+    }
+    coremodel_conn_if = NULL;
+    cif->next = coremodel_ifs;
+    coremodel_ifs = cif;
+    return cif;
+}
+
+static int coremodel_process_conn_response(struct coremodel_packet *pkt)
+{
+    if(coremodel_conn_if) {
+        coremodel_conn_if->conn = pkt->hflag;
+        coremodel_query = 0;
+    }
+    return 0;
+}
+
+void *coremodel_attach_uart(const char *name, const coremodel_uart_func_t *func, void *priv)
+{
+    return coremodel_attach_int(COREMODEL_UART, name, 0, func, priv, 0);
+}
+void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv, uint16_t flags)
+{
+    return coremodel_attach_int(COREMODEL_I2C, name, addr, func, priv, flags);
+}
+void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags)
+{
+    return coremodel_attach_int(COREMODEL_SPI, name, csel, func, priv, flags);
+}
+void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv)
+{
+    return coremodel_attach_int(COREMODEL_GPIO, name, pin, func, priv, 0);
+}
+
+static void coremodel_advance_if_uart(struct coremodel_if *cif)
+{
+    //
+}
+
+static void coremodel_advance_if_i2c(struct coremodel_if *cif)
+{
+    //
+}
+
+static void coremodel_advance_if_spi(struct coremodel_if *cif)
+{
+    //
+}
+
+static void coremodel_advance_if_gpio(struct coremodel_if *cif)
+{
+    //
+}
+
+static void coremodel_advance_if(struct coremodel_if *cif)
+{
+    switch(cif->type) {
+    case COREMODEL_UART:
+        coremodel_advance_if_uart(cif);
+        break;
+    case COREMODEL_I2C:
+        coremodel_advance_if_i2c(cif);
+        break;
+    case COREMODEL_SPI:
+        coremodel_advance_if_spi(cif);
+        break;
+    case COREMODEL_GPIO:
+        coremodel_advance_if_gpio(cif);
+        break;
+    }
 }
 
 static int coremodel_process_packet(struct coremodel_packet *pkt)
 {
+    struct coremodel_if *cif;
+    struct coremodel_rxbuf *rxb;
+
     if(pkt->conn == CONN_QUERY) {
         if(coremodel_query)
             switch(pkt->pkt) {
             case PKT_QUERY_RSP_LIST:
                 return coremodel_process_list_response(pkt);
             case PKT_QUERY_RSP_CONN:
-                break;
+                return coremodel_process_conn_response(pkt);
             }
         return 0;
     }
 
+    for(cif=coremodel_ifs; cif; cif=cif->next)
+        if(cif->conn == pkt->conn)
+            break;
+    if(!cif)
+        return 0;
+
+    rxb = calloc(1, pkt->len);
+    if(!rxb)
+        return 1;
+    memcpy(&rxb->pkt, pkt, pkt->len);
+    *cif->erxbufs = rxb;
+    cif->erxbufs = &(rxb->next);
+
+    coremodel_advance_if(cif);
     return 0;
 }
 
@@ -445,8 +608,57 @@ int coremodel_mainloop(long long usec)
     return coremodel_mainloop_int(usec, 0);
 }
 
+void coremodel_detach(void *handle)
+{
+    struct coremodel_packet pkt = { .len = 8, .conn = CONN_QUERY, .pkt = PKT_QUERY_REQ_DISC };
+    struct coremodel_if *cif = handle, **pcif;
+    struct coremodel_rxbuf *rxb;
+
+    if(!cif)
+        return;
+
+    for(pcif=&coremodel_ifs; *pcif; )
+        if(*pcif == cif)
+            *pcif = cif->next;
+        else
+            pcif= &((*pcif)->next);
+
+    while(cif->rxbufs) {
+        rxb = cif->rxbufs;
+        cif->rxbufs = rxb->next;
+        free(rxb);
+    }
+
+    pkt.hflag = cif->conn;
+    free(cif);
+
+    coremodel_push_packet(&pkt, NULL);
+}
+
 void coremodel_disconnect(void)
 {
+    struct coremodel_txbuf *txb;
+
+    while(coremodel_ifs)
+        coremodel_detach(coremodel_ifs);
     close(coremodel_fd);
     coremodel_fd = -1;
+
+    while(coremodel_txbufs) {
+        txb = coremodel_txbufs;
+        coremodel_txbufs = txb->next;
+        free(txb);
+    }
+    coremodel_etxbufs = &coremodel_txbufs;
+
+    coremodel_rxqwp = coremodel_rxqrp = 0;
+
+    coremodel_free_list(coremodel_device_list);
+    coremodel_device_list = NULL;
+    coremodel_device_list_size = 0;
+
+    free(coremodel_conn_if);
+    coremodel_conn_if = NULL;
+
+    coremodel_query = 0;
 }

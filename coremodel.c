@@ -79,6 +79,11 @@ struct coremodel_packet {
 #define PKT_GPIO_UPDATE         0x00    /* hflag: new GPIO state in mV */
 #define PKT_GPIO_FORCE          0x01    /* bflag[0]: enable driver; hflag: GPIO state in mV */
 
+/* packet types for USB host connection; REQ_CONN hflag[3:0]: connection speed enum */
+#define PKT_USBH_RESET          0x00
+#define PKT_USBH_XFR            0x01    /* bflag: transaction index, hflag[3:0]: token, hflag[7:4]: ep, hflag[14:8]: dev, hflag[15]: end, data: write data (OUT/SETUP) or 16-bit length (IN) */
+#define PKT_USBH_DONE           0x02    /* bflag: transaction index, hflag[3:0]: token, hflag[7:4]: ep, hflag[14:8]: dev, hflag[15]: stall, data: 16-bit length (OUT/SETUP), read data (IN) */
+
 #define RX_BUF                  4096
 #define MAX_PKT                 1024
 
@@ -104,19 +109,21 @@ static struct coremodel_if {
     uint16_t conn, trnidx;
     unsigned type;
     unsigned cred, busy, offs;
+    uint64_t ebusy;
     union {
         const void *func;
         const coremodel_uart_func_t *uartf;
         const coremodel_i2c_func_t *i2cf;
         const coremodel_spi_func_t *spif;
         const coremodel_gpio_func_t *gpiof;
+        const coremodel_usbh_func_t *usbhf;
     };
     void *priv;
     struct coremodel_rxbuf {
         struct coremodel_rxbuf *next;
         struct coremodel_packet pkt;
     } *rxbufs, **erxbufs;
-    uint8_t rdbuf[256];
+    uint8_t rdbuf[512];
 } *coremodel_ifs = NULL, *coremodel_conn_if = NULL;
 
 static int coremodel_mainloop_int(long long usec, unsigned query);
@@ -377,6 +384,10 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
 {
     return coremodel_attach_int(COREMODEL_GPIO, name, pin, func, priv, 0);
 }
+void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed)
+{
+    return coremodel_attach_int(COREMODEL_USBH, name, port, func, priv, speed);
+}
 
 static void coremodel_ready_int(void *handle)
 {
@@ -618,13 +629,94 @@ void coremodel_gpio_set(void *pin, unsigned drven, int mvolt)
     coremodel_push_packet(&pkt, NULL);
 }
 
-static void coremodel_advance_if(struct coremodel_if *cif)
+static int coremodel_advance_if_usbh(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
-    struct coremodel_rxbuf *rxb;
+    struct coremodel_packet npkt = { .pkt = PKT_USBH_DONE };
+    uint8_t dev, ep, tkn, end;
+    uint16_t size;
     int res;
 
-    while(cif->rxbufs) {
-        rxb = cif->rxbufs;
+    switch(pkt->pkt) {
+    case PKT_USBH_RESET:
+        if(!cif->busy) {
+            cif->busy = 1;
+            return -2;
+        }
+        cif->busy = 0;
+        cif->ebusy = 0;
+        if(cif->usbhf->rst)
+            cif->usbhf->rst(cif->priv);
+        return 0;
+
+    case PKT_USBH_XFR:
+        if(cif->busy)
+            return 0;
+        ep = (pkt->hflag >> 4) & 15;
+        tkn = pkt->hflag & 15;
+        if(tkn == USB_TKN_SETUP)
+            cif->ebusy &= ~(1ul << (ep * 4 + tkn));
+        if(cif->ebusy & (1ul << (ep * 4 + tkn)))
+            return -1;
+        dev = (pkt->hflag >> 8) & 127;
+        end = pkt->hflag >> 15;
+        if(cif->usbhf->xfr) {
+            if(tkn == USB_TKN_IN) {
+                if(pkt->len < 10)
+                    return 0;
+                size = *(uint16_t *)pkt->data;
+                if(size > sizeof(cif->rdbuf))
+                    size = sizeof(cif->rdbuf);
+                res = cif->usbhf->xfr(cif->priv, dev, ep, tkn, cif->rdbuf, size, end);
+            } else
+                res = cif->usbhf->xfr(cif->priv, dev, ep, tkn, pkt->data, pkt->len - 8, end);
+        } else
+            res = USB_XFR_NAK;
+        if(tkn == USB_TKN_SETUP)
+            return 0;
+        if(res == USB_XFR_NAK) {
+            cif->ebusy |= 1ul << (ep * 4 + tkn);
+            return -1;
+        }
+        npkt.conn = cif->conn;
+        npkt.bflag = pkt->bflag;
+        npkt.hflag = tkn | (ep << 4) | (dev << 8);
+        if(res < 0) {
+            npkt.len = (tkn == USB_TKN_IN) ? 8 : 10;
+            npkt.hflag |= 0x8000;
+            size = 0;
+            coremodel_push_packet(&npkt, &size);
+        } else {
+            if(tkn == USB_TKN_IN) {
+                npkt.len = 8 + res;
+                coremodel_push_packet(&npkt, cif->rdbuf);
+            } else {
+                npkt.len = 10;
+                size = res;
+                coremodel_push_packet(&npkt, &size);
+            }
+        }
+        return 0;
+    }
+    return 0;
+}
+
+void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn)
+{
+    struct coremodel_if *cif = usb;
+
+    if(cif) {
+        cif->ebusy &= ~(1ul << (ep * 4 + tkn));
+        coremodel_advance_if(cif);
+    }
+}
+
+static void coremodel_advance_if(struct coremodel_if *cif)
+{
+    struct coremodel_rxbuf *rxb, **prxb;
+    int res;
+
+    for(prxb=&cif->rxbufs; *prxb; ) {
+        rxb = *prxb;
         switch(cif->type) {
         case COREMODEL_UART:
             res = coremodel_advance_if_uart(cif, &rxb->pkt);
@@ -638,17 +730,27 @@ static void coremodel_advance_if(struct coremodel_if *cif)
         case COREMODEL_GPIO:
             res = coremodel_advance_if_gpio(cif, &rxb->pkt);
             break;
+        case COREMODEL_USBH:
+            res = coremodel_advance_if_usbh(cif, &rxb->pkt);
+            break;
         default:
             res = 0;
         }
-        if(res)
+        if(res > 0)
             break;
-
-        rxb = cif->rxbufs;
-        cif->rxbufs = rxb->next;
-        if(!cif->rxbufs)
-            cif->erxbufs = &cif->rxbufs;
-        free(rxb);
+        if(res == 0) {
+            if(!rxb->next)
+                cif->erxbufs = prxb;
+            *prxb = rxb->next;
+            free(rxb);
+            prxb = &cif->rxbufs;
+            continue;
+        }
+        if(res == -2) {
+            prxb = &cif->rxbufs;
+            continue;
+        }
+        prxb = &rxb->next;
     }
 }
 

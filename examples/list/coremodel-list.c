@@ -8,7 +8,8 @@ static const char * const type_string[] = {
     [ COREMODEL_UART ] = "uart",
     [ COREMODEL_I2C ]  = "i2c",
     [ COREMODEL_SPI ]  = "spi",
-    [ COREMODEL_GPIO ] = "gpio" };
+    [ COREMODEL_GPIO ] = "gpio",
+    [ COREMODEL_USBH ] = "usbh" };
 
 int main(int argc, char *argv[])
 {

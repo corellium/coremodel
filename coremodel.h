@@ -36,6 +36,7 @@ int coremodel_connect(const char *target);
 #define COREMODEL_I2C           1
 #define COREMODEL_SPI           2
 #define COREMODEL_GPIO          3
+#define COREMODEL_USBH          4
 #define COREMODEL_INVALID       -1
 typedef struct {
     int type; /* one of COREMODEL_* constants */
@@ -171,6 +172,44 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
  *  drven       driver enable
  *  mvolt       voltage to drive (if enabled) in mV */
 void coremodel_gpio_set(void *pin, unsigned drven, int mvolt);
+
+/* USB Host (connect a local USB Device to a Host inside VM) */
+
+#define USB_TKN_OUT             0
+#define USB_TKN_IN              1
+#define USB_TKN_SETUP           2
+#define USB_XFR_NAK             -1
+#define USB_XFR_STALL           -2
+typedef struct {
+    /* Called by CoreModel on USB bus reset. */
+    void (*rst)(void *priv);
+    /* Called by CoreModel to perform a USB transfer. Return a >0 number to
+     * accept / produce as many bytes, or USB_XFR_NAK to pause interface, or
+     * USB_XFR_STALL to stall interface (create error condition). A paused
+     * interface will have to be un-paused with coremodel_usbh_ready. */
+    int (*xfr)(void *priv, uint8_t dev, uint8_t ep, uint8_t tkn, uint8_t *buf, unsigned size, uint8_t end);
+} coremodel_usbh_func_t;
+
+/* Attach to a virtual USB host.
+ *  name        name of the USB host, depends on the VM
+ *  port        USB port index
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ *  speed       requested connection speed
+ * Returns handle of USB interface, or NULL on failure. */
+#define USB_SPEED_LOW           0
+#define USB_SPEED_FULL          1
+#define USB_SPEED_HIGH          2
+#define USB_SPEED_SUPER         3
+void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed);
+
+/* Unstall a stalled interface (signal that CoreModel can once again call
+ * func->xfr).
+ *  usb         handle of USB interface
+ *  ep          endpoint to signal as ready
+ *  tkn         token to signal as ready
+ */
+void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
 
 /* Other functions */
 

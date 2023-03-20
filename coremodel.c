@@ -84,6 +84,14 @@ struct coremodel_packet {
 #define PKT_USBH_XFR            0x01    /* bflag: transaction index, hflag[3:0]: token, hflag[7:4]: ep, hflag[14:8]: dev, hflag[15]: end, data: write data (OUT/SETUP) or 16-bit length (IN) */
 #define PKT_USBH_DONE           0x02    /* bflag: transaction index, hflag[3:0]: token, hflag[7:4]: ep, hflag[14:8]: dev, hflag[15]: stall, data: 16-bit length (OUT/SETUP), read data (IN) */
 
+/* packet types for CAN connection */
+#define PKT_CAN_TX              0x00    /* packet from VM to host; bflag: transaction index, hflag[0]: response expected; data: 64-bit control field followed by packet data */
+#define PKT_CAN_TX_ACK          0x01    /* bflag: transaction index, hflag[0]: NAK */
+#define PKT_CAN_RX              0x02    /* packet from host to VM; bflag: transaction index; data: 64-bit control field followed by packet data */
+#define PKT_CAN_RX_ACK          0x03    /* bflag: transaction index, hflag[0]: NAK */
+#define PKT_CAN_SET_NNAK        0x04    /* set filter of packets that will not auto-NAK */
+#define PKT_CAN_SET_ACK         0x05    /* set filter of packets that will auto-ACK */
+
 #define RX_BUF                  4096
 #define MAX_PKT                 1024
 
@@ -117,6 +125,7 @@ static struct coremodel_if {
         const coremodel_spi_func_t *spif;
         const coremodel_gpio_func_t *gpiof;
         const coremodel_usbh_func_t *usbhf;
+        const coremodel_can_func_t *canf;
     };
     void *priv;
     struct coremodel_rxbuf {
@@ -387,6 +396,10 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
 void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed)
 {
     return coremodel_attach_int(COREMODEL_USBH, name, port, func, priv, speed);
+}
+void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, void *priv)
+{
+    return coremodel_attach_int(COREMODEL_CAN, name, 0, func, priv, 0);
 }
 
 static void coremodel_ready_int(void *handle)
@@ -710,6 +723,81 @@ void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn)
     }
 }
 
+static const unsigned coremodel_can_datalen[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64 };
+
+static int coremodel_advance_if_can(struct coremodel_if *cif, struct coremodel_packet *pkt)
+{
+    int res;
+    struct { uint64_t ctrl; uint8_t data[64]; } *edata;
+    struct coremodel_packet npkt = { .len = 8, .pkt = PKT_CAN_TX_ACK };
+    unsigned dlen;
+
+    switch(pkt->pkt) {
+    case PKT_CAN_TX:
+        if(cif->busy)
+            return -1;
+        if(pkt->len < 16)
+            return 0;
+        edata = (void *)pkt->data;
+        dlen = coremodel_can_datalen[(edata->ctrl & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT];
+        if(pkt->len < 16 + dlen)
+            return 0;
+        if(cif->canf->tx)
+            res = cif->canf->tx(cif->priv, edata->ctrl, edata->data);
+        else
+            res = CAN_NAK;
+        if(res == CAN_STALL) {
+            cif->busy = 1;
+            return 1;
+        }
+        npkt.conn = cif->conn;
+        npkt.bflag = pkt->bflag;
+        npkt.hflag = !!res;
+        coremodel_push_packet(&npkt, NULL);
+        return 0;
+    case PKT_CAN_RX_ACK:
+        if(pkt->bflag == cif->trnidx) {
+            cif->ebusy = 0;
+            if(cif->canf->rxcomplete)
+                cif->canf->rxcomplete(cif->priv, pkt->hflag);
+        }
+        return 0;
+    }
+
+    return 0;
+}
+
+int coremodel_can_rx(void *can, uint64_t ctrl, uint8_t *data)
+{
+    struct coremodel_if *cif = can;
+    unsigned dlen = coremodel_can_datalen[(ctrl & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT];
+    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_CAN_RX };
+    struct { uint64_t ctrl; uint8_t data[64]; } edata;
+
+    if(!cif || cif->ebusy || (dlen && !data))
+        return 1;
+
+    cif->trnidx = (cif->trnidx + 1) & 255;
+
+    edata.ctrl = ctrl;
+    if(dlen)
+        memcpy(edata.data, data, dlen);
+
+    pkt.len = 16 + dlen;
+    pkt.conn = cif->conn;
+    pkt.bflag = cif->trnidx;
+    pkt.hflag = 0;
+    coremodel_push_packet(&pkt, &edata);
+
+    cif->ebusy = 1;
+    return 0;
+}
+
+void coremodel_can_ready(void *can)
+{
+    coremodel_ready_int(can);
+}
+
 static void coremodel_advance_if(struct coremodel_if *cif)
 {
     struct coremodel_rxbuf *rxb, **prxb;
@@ -732,6 +820,9 @@ static void coremodel_advance_if(struct coremodel_if *cif)
             break;
         case COREMODEL_USBH:
             res = coremodel_advance_if_usbh(cif, &rxb->pkt);
+            break;
+        case COREMODEL_CAN:
+            res = coremodel_advance_if_can(cif, &rxb->pkt);
             break;
         default:
             res = 0;

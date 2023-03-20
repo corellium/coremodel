@@ -9,7 +9,8 @@ static const char * const type_string[] = {
     [ COREMODEL_I2C ]  = "i2c",
     [ COREMODEL_SPI ]  = "spi",
     [ COREMODEL_GPIO ] = "gpio",
-    [ COREMODEL_USBH ] = "usbh" };
+    [ COREMODEL_USBH ] = "usbh",
+    [ COREMODEL_CAN ] = "can" };
 
 int main(int argc, char *argv[])
 {

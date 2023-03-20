@@ -1,7 +1,7 @@
 /*
  *  CoreModel C API
  *
- *  Copyright Corellium 2022
+ *  Copyright Corellium 2022-2023
  *  SPDX-License-Identifier: Apache-2.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -37,7 +37,8 @@ int coremodel_connect(const char *target);
 #define COREMODEL_SPI           2
 #define COREMODEL_GPIO          3
 #define COREMODEL_USBH          4
-#define COREMODEL_INVALID       -1
+#define COREMODEL_CAN           5
+#define COREMODEL_INVALID       (-1)
 typedef struct {
     int type; /* one of COREMODEL_* constants */
     char *name; /* name used to attach to the device */
@@ -178,8 +179,8 @@ void coremodel_gpio_set(void *pin, unsigned drven, int mvolt);
 #define USB_TKN_OUT             0
 #define USB_TKN_IN              1
 #define USB_TKN_SETUP           2
-#define USB_XFR_NAK             -1
-#define USB_XFR_STALL           -2
+#define USB_XFR_NAK             (-1)
+#define USB_XFR_STALL           (-2)
 typedef struct {
     /* Called by CoreModel on USB bus reset. */
     void (*rst)(void *priv);
@@ -210,6 +211,48 @@ void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usb
  *  tkn         token to signal as ready
  */
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
+
+/* CAN node */
+
+#define CAN_CTRL_ID_MASK        (0x7FFul << 29)
+#define  CAN_CTRL_ID_SHIFT      29
+#define CAN_CTRL_RTR            (1ul << 28)
+#define CAN_CTRL_IDE            (1ul << 27)
+#define CAN_CTRL_EID_MASK       (0x3FFFFul << 9)
+#define  CAN_CTRL_EID_SHIFT     9
+#define CAN_CTRL_ERTR           (1ul << 8)
+#define CAN_CTRL_EDL            (1ul << 7)
+#define CAN_CTRL_BRS            (1ul << 5)
+#define CAN_CTRL_ESI            (1ul << 4)
+#define CAN_CTRL_DLC_MASK       15ul
+#define  CAN_CTRL_DLC_SHIFT     0
+
+#define CAN_ACK                 0
+#define CAN_NAK                 1
+#define CAN_STALL               (-1)
+typedef struct {
+    int (*tx)(void *priv, uint64_t ctrl, uint8_t *data); /* return one of CAN_ACK, CAN_NAK, CAN_STALL */
+    void (*rxcomplete)(void *priv, int nak);
+} coremodel_can_func_t;
+
+/* Attach to a virtual CAN bus.
+ *  name        name of the CAN bus, depends on the VM
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ * Returns handle of CAN interface, or NULL on failure. */
+void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, void *priv);
+
+/* Send a packet to CAN bus.
+ *  can         handle of CAN interface
+ *  ctrl        control word
+ *  data        optional data (if ctrl.DLC != 0)
+ * Returns 0 on success, 1 if bus is not available because previous packet hasn't been completed yet. */
+int coremodel_can_rx(void *can, uint64_t ctrl, uint8_t *data);
+
+/* Unstall a stalled interface (signal that CoreModel can once again call func->tx).
+ *  can         handle of CAN interface
+ */
+void coremodel_can_ready(void *can);
 
 /* Other functions */
 

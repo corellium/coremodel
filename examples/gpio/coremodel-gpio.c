@@ -23,14 +23,15 @@ int main(int argc, char *argv[])
         printf("usage: coremodel-gpio <address[:port]> <gpio0> [...]\n");
         return 1;
     }
-    num = argc - 2;
+    num = argc - 3;
     gpios = calloc(sizeof(int), num);
     if(!gpios) {
         fprintf(stderr, "error: out of memory.\n");
         return 1;
     }
     for(idx=0; idx<num; idx++)
-        gpios[idx] = strtoul(argv[2 + idx], NULL, 0);
+        gpios[idx] = strtoul(argv[3 + idx], NULL, 0);
+
 
     res = coremodel_connect(argv[1]);
     if(res) {
@@ -39,7 +40,7 @@ int main(int argc, char *argv[])
     }
 
     for(idx=0; idx<num; idx++) {
-        handle = coremodel_attach_gpio("gpio", gpios[idx], &test_gpio_func, &gpios[idx]);
+        handle = coremodel_attach_gpio(argv[2], gpios[idx], &test_gpio_func, &gpios[idx]);
         if(!handle) {
             fprintf(stderr, "error: failed to attach gpio %d.\n", gpios[idx]);
             coremodel_disconnect();
@@ -51,6 +52,7 @@ int main(int argc, char *argv[])
 
     coremodel_detach(handle);
     coremodel_disconnect();
+    free(gpios);
 
     return 0;
 }

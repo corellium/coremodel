@@ -384,11 +384,5 @@ void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usb
 Unstall a stalled virtual USB interface end point `<ep>` with the token `<tkn>`  notifying CoreModel can call `func->xfr` once again.
 
 ```
-/* Unstall a stalled interface (signal that CoreModel can once again call
- * func->xfr).
- *  usb         handle of USB interface
- *  ep          endpoint to signal as ready
- *  tkn         token to signal as ready
- */
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
 ```

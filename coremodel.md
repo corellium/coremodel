@@ -9,6 +9,22 @@ There are multiple standard device interfaces supported including UART, I2C, SPI
   -------------     ------------     -------------------
 ```
 
+## Supported Devices
+
+Not all machine types support CoreModel API interface as they were built before CoreModel was implemented.
+The following machines have been updated for CoreModel support.
+ 
+| Interface | I.MX93 | I.MX8 | RPI4B |
+| :-------: | :----: | :---: | :---: |
+| GPIO      | x      | x     | x     |
+| UART      | x      | x     | x     |
+| I2C       | x      | x     | x     |
+| SPI       | x      | x     | x     |
+| CAN       | x      | x     |       |
+| USBH      |        |       | x     |
+
+New machine types will support CoreModel API interface.
+
 ## General CoreModel Connection and Control
 
 These API's and helper functions provide simple way to connect and interact with a VMs bus interfaces.
@@ -17,7 +33,8 @@ These API's and helper functions provide simple way to connect and interact with
 ### Connection
 
 The cormodel_connect/disconnect functions provide a standard way to connect and disconnect over the network to the VM.
-The `coremodel_connect` function takes a `<target>` string formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success. 
+The `coremodel_connect` function takes a `<target>` string formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success.
+On boot of the VM the port number to use with CoreModel is provided by `model-gw:`. 
 
 ```
 /* Connect to a VM. */

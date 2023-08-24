@@ -1,9 +1,8 @@
 # CoreModel Examples
 
-The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93 can be used to test connecting to the virtual interfaces.
+The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93, IMX8, and RPI4B can be used to test connecting to the virtual interfaces.
 On boot of the VM the port number to use with CoreModel is provided by `model-gw:`.
 
-To be able to build the examples the `libcoremodel` needs to be built first as they are linked against it.
 
 ## List
 
@@ -108,7 +107,61 @@ GPIO[16] = 0 mV
 The USBH example shows how to attach to the virtual USBH interface. To attach USBH dummy provide `<ip:port>` and `<name>` of the USBH interface followed by the `<port>` of the USBH bus.
 
 ```
-./coremodel-usbh 10.10.0.3:1900 <name> 0
+./coremodel-usbh 10.10.0.3:1900 xhci 0
 ```
 
-The example will print the data sent to the device on `USB_TKN_OUT`, `USB_TKN_IN`, and `USB_TKN_SETUP` to `stdout`.
+The example will print the data sent to the device on `USB_TKN_OUT`, `USB_TKN_IN`, and `USB_TKN_SETUP` to `stdout`. The IMX93 does not have an exposed USBH to CoreModel the following is from RPI4B.
+
+```
+RESET
+XFR 00 EP0 SETUP [8]: 80 06 00 01 00 00 40 00 -> 8
+XFR 00 EP0 IN [64] -> 12 01 00 02 00 00 00 08 6b 1d 04 01 01 01 01 02 00 01
+XFR 00 EP0 OUT [0]: -> 0
+RESET
+RESET
+XFR 03 EP0 SETUP [8]: 80 06 00 01 00 00 12 00 -> 8
+XFR 03 EP0 IN [18] -> 12 01 00 02 00 00 00 08 6b 1d 04 01 01 01 01 02 00 01
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 06 00 00 0a 00 -> -2
+XFR 03 EP0 IN [10] -> 12 01 00 02 00 00 00 08 6b 1d
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 06 00 00 0a 00 -> -2
+XFR 03 EP0 IN [10] -> 12 01 00 02 00 00 00 08 6b 1d
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 06 00 00 0a 00 -> -2
+XFR 03 EP0 IN [10] -> 12 01 00 02 00 00 00 08 6b 1d
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 02 00 00 09 00 -> 8
+XFR 03 EP0 IN [9] -> 09 02 22 00 01 01 03 a0 00
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 02 00 00 22 00 -> 8
+XFR 03 EP0 IN [34] -> 09 02 22 00 01 01 03 a0 00 09 04 00 00 01 03 01 01 04 09 21 11 01 21 01 22 3f 00 07 05 81 03 08 00 02
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 00 03 00 00 ff 00 -> 8
+XFR 03 EP0 IN [255] -> 04 03 09 04
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 02 03 09 04 ff 00 -> 8
+XFR 03 EP0 IN [255] -> 12 03 4b 00 65 00 79 00 62 00 6f 00 61 00 72 00 64 00
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 01 03 09 04 ff 00 -> 8
+XFR 03 EP0 IN [255] -> 14 03 43 00 6f 00 72 00 65 00 6c 00 6c 00 69 00 75 00 6d 00
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 00 09 01 00 00 00 00 00 -> 8
+XFR 03 EP0 IN [0] -> 0
+XFR 03 EP0 SETUP [8]: 80 06 03 03 09 04 ff 00 -> 8
+XFR 03 EP0 IN [255] -> 12 03 4b 00 65 00 79 00 62 00 6f 00 61 00 72 00 64 00
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 80 06 04 03 09 04 ff 00 -> 8
+XFR 03 EP0 IN [255] -> 16 03 48 00 49 00 44 00 20 00 44 00 65 00 76 00 69 00 63 00 65 00
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 21 0a 00 00 00 00 00 00 -> 8
+XFR 03 EP0 IN [0] -> -2
+XFR 03 EP0 SETUP [8]: 81 06 00 22 00 00 3f 00 -> 8
+XFR 03 EP0 IN [63] -> 05 01 09 06 a1 01 05 07 19 e0 29 e7 15 00 25 01 75 01 95 08 81 02 95 01 75 08 81 01 95 05 75 01 05 08 19 01 29 05 91 02 95 01 75 03 91 01 95 06 75 08 15 00 25 65 05 07 19 00 29 65 81 00 c0
+XFR 03 EP0 OUT [0]: -> 0
+XFR 03 EP0 SETUP [8]: 21 09 00 02 00 00 01 00 -> 8
+XFR 03 EP0 OUT [1]: 00 -> 1
+XFR 03 EP1 IN [8] -> -1
+XFR 03 EP0 IN [0] -> -2
+
+```

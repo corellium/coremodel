@@ -32,9 +32,9 @@ These API's and helper functions provide simple way to connect and interact with
 
 ### Connection
 
-The cormodel_connect/disconnect functions provide a standard way to connect and disconnect over the network to the VM.
+The coremodel_connect/disconnect functions provide a standard way to connect and disconnect over the network to the VM.
 The `coremodel_connect` function takes a `<target>` string formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success.
-On boot of the VM the port number to use with CoreModel is provided by `model-gw:` and the default port is 1900. 
+The IP to use with CoreModel is the services IP of the VM and the port is 1900. You can find the services IP in the Connect tab of the VM.
 
 ```
 /* Connect to a VM. */

@@ -631,7 +631,7 @@ static int coremodel_advance_if_gpio(struct coremodel_if *cif, struct coremodel_
 void coremodel_gpio_set(void *pin, unsigned drven, int mvolt)
 {
     struct coremodel_if *cif = pin;
-    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_I2C_DONE };
+    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_GPIO_FORCE };
 
     if(!cif)
         return;

@@ -8,20 +8,24 @@ static const unsigned can_datalen[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20,
 
 static void *handle = NULL;
 
-static int test_can_tx(void *priv, uint64_t ctrl, uint8_t *data)
+static int test_can_tx(void *priv, uint64_t *ctrl, uint8_t *data)
 {
-    unsigned dlen = can_datalen[(ctrl & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT], idx;
+    unsigned dlen = can_datalen[(ctrl[0] & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT], idx;
+    uint64_t rxctrl[2] = {
+        CAN_CTRL_ERTR | (0x3FFFFull << CAN_CTRL_EID_SHIFT) | (0x456ull << CAN_CTRL_ID_SHIFT),
+        0
+    };
 
     if(dlen) {
-        printf("[%010lx] ", ctrl);
+        printf("[%016lx %016lx] %d, ", ctrl[0], ctrl[1], dlen);
         for(idx=0; idx<dlen; idx++)
             printf("%02x", data[idx]);
         printf("\n");
     } else
-        printf("[%010lx]\n", ctrl);
+        printf("[%016lx %016lx]\n", ctrl[0], ctrl[1]);
     fflush(stdout);
 
-    if(coremodel_can_rx(handle, 0x8ac7ffff00, NULL))
+    if(coremodel_can_rx(handle, &rxctrl, NULL))
         fprintf(stderr, "Rx send failed\n");
 
     return CAN_ACK;

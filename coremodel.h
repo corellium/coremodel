@@ -213,25 +213,36 @@ void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usb
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
 
 /* CAN node */
+#define CAN_CTRL1_SEC           (1ul << 59)
+#define CAN_CTRL1_SDT_MASK      (0xFFul << CAN_CTRL1_SDT_SHIFT)
+#define CAN_CTRL1_SDT_SHIFT      51
+#define CAN_CTRL1_VCID_MASK     (0xFFul << CAN_CTRL1_VCID_SHIFT)
+#define CAN_CTRL1_VCID_SHIFT     43
+#define CAN_CTRL1_PRIO_MASK     (0x7FFul << CAN_CTRL1_PRIO_SHIFT)
+#define CAN_CTRL1_PRIO_SHIFT     32
+#define CAN_CTRL1_AF_MASK       (0xFFFFFFFFul << CAN_CTRL1_AF_SHIFT)
+#define CAN_CTRL1_AF_SHIFT       0
 
-#define CAN_CTRL_ID_MASK        (0x7FFul << 29)
-#define  CAN_CTRL_ID_SHIFT      29
-#define CAN_CTRL_RTR            (1ul << 28)
-#define CAN_CTRL_IDE            (1ul << 27)
-#define CAN_CTRL_EID_MASK       (0x3FFFFul << 9)
-#define  CAN_CTRL_EID_SHIFT     9
-#define CAN_CTRL_ERTR           (1ul << 8)
-#define CAN_CTRL_EDL            (1ul << 7)
-#define CAN_CTRL_BRS            (1ul << 5)
-#define CAN_CTRL_ESI            (1ul << 4)
-#define CAN_CTRL_DLC_MASK       15ul
-#define  CAN_CTRL_DLC_SHIFT     0
+#define CAN_CTRL_XLF            (1ul << 49)
+#define CAN_CTRL_FDF            (1ul << 48)
+#define CAN_CTRL_ID_MASK        (0x7FFul << CAN_CTRL_ID_SHIFT)
+#define CAN_CTRL_ID_SHIFT        36
+#define CAN_CTRL_RTR            (1ul << 35)
+#define CAN_CTRL_IDE            (1ul << 34)
+#define CAN_CTRL_EID_MASK       (0x3FFFFul << CAN_CTRL_EID_SHIFT)
+#define CAN_CTRL_EID_SHIFT       16
+#define CAN_CTRL_ERTR           (1ul << 15)
+#define CAN_CTRL_EDL            (1ul << 14)
+#define CAN_CTRL_BRS            (1ul << 12)
+#define CAN_CTRL_ESI            (1ul << 11)
+#define CAN_CTRL_DLC_MASK       (0x7FFul << CAN_CTRL_DLC_SHIFT)
+#define CAN_CTRL_DLC_SHIFT       0
 
 #define CAN_ACK                 0
 #define CAN_NAK                 1
 #define CAN_STALL               (-1)
 typedef struct {
-    int (*tx)(void *priv, uint64_t ctrl, uint8_t *data); /* return one of CAN_ACK, CAN_NAK, CAN_STALL */
+    int (*tx)(void *priv, uint64_t *ctrl, uint8_t *data); /* return one of CAN_ACK, CAN_NAK, CAN_STALL */
     void (*rxcomplete)(void *priv, int nak);
 } coremodel_can_func_t;
 
@@ -247,7 +258,7 @@ void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, v
  *  ctrl        control word
  *  data        optional data (if ctrl.DLC != 0)
  * Returns 0 on success, 1 if bus is not available because previous packet hasn't been completed yet. */
-int coremodel_can_rx(void *can, uint64_t ctrl, uint8_t *data);
+int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data);
 
 /* Unstall a stalled interface (signal that CoreModel can once again call func->tx).
  *  can         handle of CAN interface

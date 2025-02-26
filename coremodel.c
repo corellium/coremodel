@@ -728,9 +728,9 @@ static const unsigned coremodel_can_datalen[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 1
 static int coremodel_advance_if_can(struct coremodel_if *cif, struct coremodel_packet *pkt)
 {
     int res;
-    struct { uint64_t ctrl; uint8_t data[64]; } *edata;
     struct coremodel_packet npkt = { .len = 8, .pkt = PKT_CAN_TX_ACK };
-    unsigned dlen;
+    void *data;
+    unsigned dlc, dlen;
 
     switch(pkt->pkt) {
     case PKT_CAN_TX:
@@ -738,12 +738,13 @@ static int coremodel_advance_if_can(struct coremodel_if *cif, struct coremodel_p
             return -1;
         if(pkt->len < 16)
             return 0;
-        edata = (void *)pkt->data;
-        dlen = coremodel_can_datalen[(edata->ctrl & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT];
+        dlc = (*(uint64_t *)pkt->data & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT;
+        dlen = (dlc < 16) ? coremodel_can_datalen[dlc] : dlc + 1;
         if(pkt->len < 16 + dlen)
             return 0;
+        data = pkt->data + 16;
         if(cif->canf->tx)
-            res = cif->canf->tx(cif->priv, edata->ctrl, edata->data);
+            res = cif->canf->tx(cif->priv, (uint64_t *)pkt->data, data);
         else
             res = CAN_NAK;
         if(res == CAN_STALL) {
@@ -767,27 +768,28 @@ static int coremodel_advance_if_can(struct coremodel_if *cif, struct coremodel_p
     return 0;
 }
 
-int coremodel_can_rx(void *can, uint64_t ctrl, uint8_t *data)
+int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data)
 {
     struct coremodel_if *cif = can;
-    unsigned dlen = coremodel_can_datalen[(ctrl & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT];
-    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_CAN_RX };
-    struct { uint64_t ctrl; uint8_t data[64]; } edata;
+    unsigned dlc, dlen;
+    struct coremodel_packet pkt = { .pkt = PKT_CAN_RX };
+    struct { uint64_t ctrl[2]; uint8_t data[2048]; } edata;
 
+    dlc = (ctrl[0] & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT;
+    dlen = (dlc < 16) ? coremodel_can_datalen[dlc] : dlc + 1;
     if(!cif || cif->ebusy || (dlen && !data))
         return 1;
 
     cif->trnidx = (cif->trnidx + 1) & 255;
-
-    edata.ctrl = ctrl;
+    memcpy(&edata.ctrl, ctrl, sizeof(edata.ctrl));
     if(dlen)
         memcpy(edata.data, data, dlen);
 
-    pkt.len = 16 + dlen;
+    pkt.len = sizeof(pkt) + sizeof(edata.ctrl) + dlen;
     pkt.conn = cif->conn;
     pkt.bflag = cif->trnidx;
     pkt.hflag = 0;
-    coremodel_push_packet(&pkt, &edata);
+    coremodel_push_packet(&pkt, (void *)&edata);
 
     cif->ebusy = 1;
     return 0;

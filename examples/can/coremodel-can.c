@@ -26,7 +26,7 @@ static int test_can_tx(void *priv, uint64_t *ctrl, uint8_t *data)
         printf("[%016"PRIx64" %016"PRIx64"]\n", ctrl[0], ctrl[1]);
     fflush(stdout);
 
-    if(coremodel_can_rx(handle, rxctrl, NULL))
+    if(coremodel_can_rx(handle, (uint64_t *)&rxctrl, NULL))
         fprintf(stderr, "Rx send failed\n");
 
     return CAN_ACK;
@@ -40,33 +40,34 @@ static void test_can_rxcomplete(void *priv, int nak)
 static const coremodel_can_func_t test_can_func = {
     .tx = test_can_tx,
     .rxcomplete = test_can_rxcomplete };
- 
+
 int main(int argc, char *argv[])
 {
     int res;
+    void *cm;
 
     if(argc != 3) {
         printf("usage: coremodel-can <address[:port]> <can>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
     }
 
-    handle = coremodel_attach_can(argv[2], &test_can_func, NULL);
+    handle = coremodel_attach_can(cm, argv[2], &test_can_func, NULL);
     if(!handle) {
         fprintf(stderr, "error: failed to attach CAN.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

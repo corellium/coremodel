@@ -15,6 +15,7 @@ static const char * const type_string[] = {
 int main(int argc, char *argv[])
 {
     coremodel_device_list_t *list;
+    void *cm;
     unsigned idx;
     int res;
 
@@ -23,15 +24,15 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
     }
 
-    list = coremodel_list();
+    list = coremodel_list(cm);
 
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     if(!list) {
         fprintf(stderr, "error: failed to list devices.\n");

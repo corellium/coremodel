@@ -2,3 +2,4 @@
 *.so
 .DS_Store
 *.dSYM
+hub/coremodel-hub

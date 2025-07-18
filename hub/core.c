@@ -8,9 +8,13 @@
 #include <stddef.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 #include <hub.h>
 #include <rbtree.h>
+
+#include <json.h>
 
 /* Convenience function for casting a client structure */
 #define ICLIENT(_cli)   ((struct client_int *)(_cli))
@@ -56,6 +60,7 @@ static int hub_usage(void)
 {
     pr_info("usage %s [OPTIONS]\n"
             "\t-c name:if:idx,name:if:idx\tMake a connection between two exposed VM interfaces\n"
+            "\t-f path\t\t\t\tConfiguration file path\n"
             "\t-h\t\t\t\tThis help text\n"
             "\t-i name:ip:port\t\t\tNetwork location of a VM to bridge together\n"
     , __progname);
@@ -71,12 +76,12 @@ static void hub_free_tuple(char **tuple)
     free(tuple);
 }
 
-static char **hub_parse_tuple(char *tuple, int len, char *sep)
+static char **hub_parse_tuple(const char *tuple, int len, char *sep)
 {
-    char **v, *s;
+    char **v, *s, *t;
     unsigned i = 0;
 
-    s = tuple = strdup(tuple);
+    s = t = strdup(tuple);
     if(!s)
         return NULL;
 
@@ -90,13 +95,13 @@ static char **hub_parse_tuple(char *tuple, int len, char *sep)
         i += (*s++ == *sep);
 
     i = len - i - 1;
-    if((s = strtok(tuple, sep)))
+    if((s = strtok(t, sep)))
         do{
             v[i++] = strdup(s);
         }while((s = strtok(NULL, sep)));
 
     v[len] = (void *)-1ull;
-    free(tuple);
+    free(t);
     return v;
 }
 
@@ -183,7 +188,7 @@ static void client_ifree(struct client_int *cli)
     free(cli);
 }
 
-static void *client_inew(char *cred)
+static void *client_inew(const char *cred)
 {
     struct client_int *cli;
     char **tuple;
@@ -214,7 +219,7 @@ cleanup:
     return NULL;
 }
 
-static void *client_enew(char *cred)
+static void *client_enew(const char *cred)
 {
     struct client_int *cli;
 
@@ -255,7 +260,7 @@ static void client_free(struct client *cli)
     g_state.nclients--;
 }
 
-static int hub_client_add(char *cred, int type)
+static int hub_client_add(const char *cred, int type)
 {
     struct client *cli;
 
@@ -418,10 +423,15 @@ cleanup:
     return ret;
 }
 
-static int hub_connection_add(char *cred)
+static int hub_connection_add(const char *cred)
 {
     char **v;
     int ret = -1;
+
+    if(!g_state.nclients){
+        pr_error("Connection requested with no defined instance clients\n");
+        return -1;
+    }
 
     v = hub_parse_tuple(cred, 2, ",");
     if(v){
@@ -432,14 +442,97 @@ static int hub_connection_add(char *cred)
     return ret;
 }
 
+static void *map_file(char *path, size_t *size)
+{
+    struct stat stat;
+    void *map = NULL;
+    int fd;
+
+    fd = open(path, O_RDONLY);
+    if(fd < 0){
+        pr_error("Failed to open '%s': %s\n", path, strerror(errno));
+        goto exit;
+    }
+
+    if(0 != fstat(fd, &stat)){
+        pr_error("Failed to stat '%s': %s\n", path, strerror(errno));
+        goto exit;
+    }
+
+    map = mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if(MAP_FAILED == map){
+        pr_error("Failed to mmap '%s': %s\n", path, strerror(errno));
+        map = NULL;
+    }
+
+    *size = stat.st_size;
+exit:
+    if(fd > 0)  close(fd);
+    return map;
+}
+
+static int hub_parse_config_file(char *path)
+{
+    json_object *jroot, *j;
+    void *map;
+    const char *s;
+    size_t size;
+    int i, ret = -1;
+
+    map = map_file(path, &size);
+    if(!map)
+        return -1;
+
+    jroot = json_tokener_parse((char *)map);
+    if(!jroot){
+        pr_error("Invalid JSON config file provided\n");
+        goto done;
+    }
+
+    /* Walk all specified instances */
+    j = json_object_object_get(jroot, "instances");
+    if(!j)
+        goto done;
+
+    for(i=0; i<json_object_array_length(j); i++){
+        s = json_object_get_string(json_object_array_get_idx(j, i));
+        if(hub_client_add(s, CLIENT_TYPE_INTERNAL))
+            goto done;
+    }
+
+    /* Walk all specified connections */
+    j = json_object_object_get(jroot, "connections");
+    if(!j)
+        goto done;
+
+    for(i=0; i<json_object_array_length(j); i++){
+        s = json_object_get_string(json_object_array_get_idx(j, i));
+        if(hub_connection_add(s))
+            goto done;
+    }
+
+    ret = 0;
+done:
+    if(map)
+        munmap(map, size);
+    return ret;
+}
+
 static int hub_parse_args(int argc, char *argv[])
 {
     int opt;
 
-    while((opt = getopt(argc, argv, "c:hi:l:")) >= 0){
+    if(argc <= 1)
+        return -1;
+
+    while((opt = getopt(argc, argv, "c:f:hi:l:")) >= 0){
         switch(opt){
         case 'c':
             if(hub_connection_add(optarg))
+                return -1;
+            break;
+        case 'f':
+            if(hub_parse_config_file(optarg))
                 return -1;
             break;
         case 'i':
@@ -452,7 +545,7 @@ static int hub_parse_args(int argc, char *argv[])
             break;
         case '?':
         case 'h':
-            return hub_usage();
+            return -1;
         }
     }
 
@@ -662,8 +755,10 @@ int main(int argc, char *argv[])
     struct client *t, *cli;
 
     rbtree_setup(&g_state.rb, offsetof(struct vif_node, node), vif_compare, NULL);
-    if(hub_parse_args(argc, argv))
+    if(hub_parse_args(argc, argv)){
+        hub_usage();
         goto cleanup;
+    }
 
     if(!g_state.nclients)
         goto cleanup;

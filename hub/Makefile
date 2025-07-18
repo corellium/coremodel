@@ -2,7 +2,7 @@
 
 HOSTCC = $(PREFIX)gcc
 HOSTAR = $(PREFIX)ar
-CFLAGS = -g -Wall -I$(LIBSRC) -Iinclude -DHUB_LOGCOLOR -DHUB_LOGLEVEL=99 -Wno-unused-function
+CFLAGS = -g -Wall -I$(LIBSRC) -Iinclude -Ijson-c/ -DHUB_LOGCOLOR -DHUB_LOGLEVEL=99 -Wno-unused-function
 LIBSRC ?= ../
 
 SRCS = \
@@ -15,7 +15,7 @@ SRCS = \
 
 all: coremodel-hub
 
-coremodel-hub: $(SRCS) libcoremodel.a
+coremodel-hub: $(SRCS) libcoremodel.a json-c/libjson-c.a
 	$(HOSTCC) $(CFLAGS) -o $@ $^
 
 libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h

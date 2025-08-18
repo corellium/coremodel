@@ -22,16 +22,18 @@
 #ifdef HUB_LOGCOLOR
     #define HUB_PRINT_COLOR     "\033[93m"
     #define HUB_ERROR_COLOR     "\033[31m"
+    #define HUB_DEBUG_COLOR     "\033[35m"
     #define HUB_COLOR_END       "\033[0m"
 #else
     #define HUB_PRINT_COLOR     ""
     #define HUB_ERROR_COLOR     ""
+    #define HUB_DEBUG_COLOR     ""
     #define HUB_COLOR_END       ""
 #endif
 
 #if HUB_LOGLEVEL >= HUB_LOGLEVEL_DEBUG
     #define pr_debug(_fmt, ...)\
-        fprintf(stderr, HUB_PRINT_COLOR _fmt HUB_COLOR_END , ## __VA_ARGS__)
+        fprintf(stderr, HUB_DEBUG_COLOR _fmt HUB_COLOR_END , ## __VA_ARGS__)
 #else
     #define pr_debug(...)   do{}while(0)
 #endif
@@ -61,10 +63,6 @@
 #define TUPLE_IP_IDX    1
 #define TUPLE_PORT_IDX  2
 #define TUPLE_NELM      3
-
-/* Exported interfaces */
-extern const coremodel_gpio_func_t vif_gpio;
-extern const coremodel_can_func_t vif_can;
 
 /*
  * Conver the CoreModel client credentials to a CoreModel name to open
@@ -106,11 +104,26 @@ struct vif_node {
     char **tuple;           /* Tuple of name ^ */
     void *handle;           /* CoreModel interface handle */
     unsigned ref;           /* CoreModel interface client count */
+    void *priv;             /* Per-interface type priv */
     struct netlist net;     /* Linkage inside the netlist */
     struct edge {           /* Connected edges in the graph */
         struct edge *next;
         struct vif_node *node;
     } *edge;
 };
+
+struct vif_node_config {
+    union {
+        coremodel_gpio_func_t gpio;
+        coremodel_can_func_t can;
+    };
+
+    int (*init)(struct vif_node *vif);
+    int (*free)(struct vif_node *vif);
+};
+
+/* Exported interfaces */
+extern const struct vif_node_config vif_gpio;
+extern const struct vif_node_config vif_can;
 
 #endif // _HUB_H

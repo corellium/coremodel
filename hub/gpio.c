@@ -2,6 +2,20 @@
 #include <coremodel.h>
 #include <hub.h>
 
+#define GPIO_PRIV_MVOLT_GET(_vif)           (((int)(uintptr_t)(_vif)->priv))
+#define GPIO_PRIV_MVOLT_SET(_vif, _mvolt)   ((_vif)->priv = (void *)(uintptr_t)(_mvolt))
+
+static int gpio_priv_init(struct vif_node *vif)
+{
+    GPIO_PRIV_MVOLT_SET(vif, 0);
+    return 0;
+}
+
+static int gpio_priv_free(struct vif_node *vif)
+{
+    return 0;
+}
+
 static void gpio_notify_net(struct vif_node *src, int mvolt)
 {
     struct vif_node *vif;
@@ -11,11 +25,17 @@ static void gpio_notify_net(struct vif_node *src, int mvolt)
     if(!net)
         return;
 
+    GPIO_PRIV_MVOLT_SET(src, mvolt);
+
     net = net->head;
     while(net){
         vif = container_of(net, struct vif_node, net);
-        if(vif != src)
-            coremodel_gpio_set(vif->handle, 1, mvolt);
+        if(vif != src){
+            if(GPIO_PRIV_MVOLT_GET(vif) != mvolt){
+                coremodel_gpio_set(vif->handle, 1, mvolt);
+                GPIO_PRIV_MVOLT_SET(vif, mvolt);
+            }
+        }
 
         net = net->next;
     }
@@ -27,6 +47,10 @@ static void gpio_notify(void *priv, int mvolt)
     gpio_notify_net(vif, mvolt);
 }
 
-const coremodel_gpio_func_t vif_gpio = {
-    .notify = gpio_notify
+const struct vif_node_config vif_gpio = {
+    .gpio = {
+        .notify = gpio_notify,
+    },
+    .init = gpio_priv_init,
+    .free = gpio_priv_free
 };

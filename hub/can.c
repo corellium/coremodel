@@ -49,7 +49,9 @@ static void vif_can_rx_complete(void *priv, int nak)
 {
 }
 
-const coremodel_can_func_t vif_can = {
-    .tx = vif_can_tx,
-    .rxcomplete = vif_can_rx_complete
+const struct vif_node_config vif_can = {
+    .can = {
+        .tx = vif_can_tx,
+        .rxcomplete = vif_can_rx_complete
+    }
 };

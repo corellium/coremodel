@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <signal.h>
 
 #include <hub.h>
 #include <rbtree.h>
@@ -28,6 +29,9 @@
 #define VIF_WALK_LIST_GRAPH         1
 #define VIF_WALK_CONSTRUCT_NETLIST  2
 
+#define vif_priv_init(_vif) vif_priv_do((_vif), 0)
+#define vif_priv_free(_vif) vif_priv_do((_vif), 1)
+
 /* External client */
 struct client_ext {
     int fd;
@@ -45,6 +49,9 @@ struct hub_state {
     rbtree_t rb;
     int lfd;
     void *cred;
+    char *config;
+    unsigned run;
+    unsigned reload;
     struct client {
         struct client *next;
         int type;
@@ -65,6 +72,28 @@ static int hub_usage(void)
             "\t-i name:ip:port\t\t\tNetwork location of a VM to bridge together\n"
     , __progname);
     return -1;
+}
+
+static int vif_priv_do(struct vif_node *vif, unsigned free)
+{
+    int (*f)(struct vif_node *vif);
+    static const struct vif_node_config *vif_ifaces[] = {
+        [COREMODEL_UART] = NULL,
+        [COREMODEL_I2C] = NULL,
+        [COREMODEL_SPI] = NULL,
+        [COREMODEL_GPIO] = &vif_gpio,
+        [COREMODEL_USBH] = NULL,
+        [COREMODEL_CAN] = NULL
+    };
+
+    if(vif->type >= ARRAY_SIZE(vif_ifaces))
+        return -1;
+
+    if(!vif_ifaces[vif->type])
+        return 0;
+
+    f = (free ? vif_ifaces[vif->type]->free : vif_ifaces[vif->type]->init);
+    return f ? f(vif) : 0;
 }
 
 static void hub_free_tuple(char **tuple)
@@ -136,10 +165,10 @@ static int client_iface_init(struct client_int *cli)
     if(!list)
         return -1;
 
+//    pr_debug("CLIENT.%s INTERFACES\n", cli->name);
     for(i=0; list[i].type!=COREMODEL_INVALID; i++){
         for(j=0; j<list[i].num; j++){
             vif = calloc(1, sizeof(*vif));
-//            pr_info("VIF: %p\n", vif);
             if(!vif)
                 goto cleanup;
 
@@ -149,8 +178,12 @@ static int client_iface_init(struct client_int *cli)
             if(!vif->name)
                 goto cleanup;
 
+//            pr_debug("\t%s\n", vif->name);
             vif->tuple = hub_parse_tuple(vif->name, TUPLE_NELM, ":");
             if(!vif->tuple)
+                goto cleanup;
+
+            if(vif_priv_init(vif))
                 goto cleanup;
 
             rbtree_insert(&g_state.rb, vif);
@@ -263,16 +296,17 @@ static void client_free(struct client *cli)
 static int hub_client_add(const char *cred, int type)
 {
     struct client *cli;
+    int ret = - 1;
 
     cli = calloc(1, sizeof(*cli));
     if(!cli)
-        return -1;
+        goto err;
 
     cli->type = type;
     cli->cred = strdup(cred);
     if(!cli->cred){
         free(cli);
-        return -1;
+        goto err;
     }
 
     switch(type){
@@ -287,7 +321,7 @@ static int hub_client_add(const char *cred, int type)
     if(!cli->inner){
         free(cli->cred);
         free(cli);
-        return -1;
+        goto err;
     }
 
     if(g_state.clients)
@@ -295,25 +329,11 @@ static int hub_client_add(const char *cred, int type)
     g_state.clients = cli;
     g_state.nclients++;
 
-    return 0;
-}
-
-static int hub_set_listen(char *cred)
-{
-    char **v;
-
-    g_state.cred = strdup(cred);
-    if(!g_state.cred)
-        return -1;
-
-    v = hub_parse_tuple(cred, TUPLE_NELM, ":");
-    if(!v)
-        return -1;
-
-    //XXX: set listen port, iface, etc
-
-    hub_free_tuple(v);
-    return 0;
+    ret = 0;
+err:
+    if(ret)
+        pr_error("Failed to add client \'%s\'\n", cred);
+    return ret;
 }
 
 static int vif_attach(struct vif_node *vif)
@@ -324,10 +344,10 @@ static int vif_attach(struct vif_node *vif)
         switch(vif->type){
         case COREMODEL_GPIO:
             id = strtoull(vif->tuple[2], NULL, 0);
-            vif->handle = coremodel_attach_gpio(ICLIENT(vif->cli)->cm, vif->tuple[1], id, &vif_gpio, vif);
+            vif->handle = coremodel_attach_gpio(ICLIENT(vif->cli)->cm, vif->tuple[1], id, &vif_gpio.gpio, vif);
             break;
         case COREMODEL_CAN:
-            vif->handle = coremodel_attach_can(ICLIENT(vif->cli)->cm, vif->tuple[1], &vif_can, vif);
+            vif->handle = coremodel_attach_can(ICLIENT(vif->cli)->cm, vif->tuple[1], &vif_can.can, vif);
             break;
         case COREMODEL_UART:
         case COREMODEL_I2C:
@@ -385,6 +405,12 @@ static int hub_vif_connect(char *a, char *b)
     if(!vifa || !vifb)
         return -1;
 
+    /* Do not connect to self */
+    if(vifa == vifb){
+        pr_error("Refusing to connect to \'%s\' to self\n", vifa->name);
+        return -1;
+    }
+
     /* Only connect like-types */
     if(vifa->type != vifb->type){
         pr_error("Refusing to connect \'%s\' and \'%s\'\n",
@@ -393,8 +419,10 @@ static int hub_vif_connect(char *a, char *b)
         return -1;
     }
 
-    ea = edge_new(vifb);
-    eb = edge_new(vifa);
+    pr_debug("Connecting \'%s\' and \'%s\'\n", vifa->name, vifb->name);
+
+    ea = edge_new(vifa);
+    eb = edge_new(vifb);
     if(!ea || !eb)
         goto cleanup;
 
@@ -406,11 +434,9 @@ static int hub_vif_connect(char *a, char *b)
     }
 
     /* Not a diagraph; add to both nodes */
-    eb->node = vifb;
     eb->next = vifa->edge;
     vifa->edge = eb;
 
-    ea->node = vifa;
     ea->next = vifb->edge;
     vifb->edge = ea;
 
@@ -430,7 +456,7 @@ static int hub_connection_add(const char *cred)
 
     if(!g_state.nclients){
         pr_error("Connection requested with no defined instance clients\n");
-        return -1;
+        goto err;
     }
 
     v = hub_parse_tuple(cred, 2, ",");
@@ -439,6 +465,9 @@ static int hub_connection_add(const char *cred)
         hub_free_tuple(v);
     }
 
+err:
+    if(ret)
+        pr_error("Failed to add connection \'%s\'\n", cred);
     return ret;
 }
 
@@ -479,6 +508,7 @@ static int hub_parse_config_file(char *path)
     size_t size;
     int i, ret = -1;
 
+    pr_debug("Parsing config file \'%s\'\n", path);
     map = map_file(path, &size);
     if(!map)
         return -1;
@@ -513,6 +543,9 @@ static int hub_parse_config_file(char *path)
 
     ret = 0;
 done:
+    if(jroot)
+        json_object_put(jroot);
+
     if(map)
         munmap(map, size);
     return ret;
@@ -532,15 +565,10 @@ static int hub_parse_args(int argc, char *argv[])
                 return -1;
             break;
         case 'f':
-            if(hub_parse_config_file(optarg))
-                return -1;
+            g_state.config = strdup(optarg);
             break;
         case 'i':
             if(hub_client_add(optarg, CLIENT_TYPE_INTERNAL))
-                return -1;
-            break;
-        case 'l':
-            if(hub_set_listen(optarg))
                 return -1;
             break;
         case '?':
@@ -581,7 +609,7 @@ static void hub_vif_free(void *param, void *node)
     free(vif);
 }
 
-static void hub_cleanup(void)
+static void hub_cleanup_connections(void)
 {
     struct netlist *net, *t;
 
@@ -595,9 +623,11 @@ static void hub_cleanup(void)
 
     while(g_state.clients)
         client_free(g_state.clients);
+    g_state.clients = NULL;
 
     if(g_state.cred)
         free(g_state.cred);
+    g_state.cred = NULL;
 
     net = g_state.nets;
     while(net){
@@ -605,6 +635,15 @@ static void hub_cleanup(void)
         net = net->next;
         free(t);
     }
+    g_state.nets = NULL;
+
+}
+
+static void hub_cleanup(void)
+{
+    hub_cleanup_connections();
+    if(g_state.config)
+        free(g_state.config);
 }
 
 int vif_compare(void *param, void *a, void *b)
@@ -649,10 +688,10 @@ static void vif_walk(void *param, void *node)
         if(!vif->edge)
             return;
 
-        pr_info("[%s]\n", vif->name);
+        pr_debug("[%s]\n", vif->name);
         e = vif->edge;
         while(e){
-            pr_info("\t|--> %s\n", e->node->name);
+            pr_debug("\t|--> %s\n", e->node->name);
             e = e->next;
         }
         break;
@@ -732,21 +771,42 @@ static void debug_list_nets(void)
     pr_debug("----------------\n");
 }
 
-int hub_construct_netlist(void)
+static int hub_construct_netlist(void)
 {
     vif_graph_reset();
     rbtree_walk(&g_state.rb, vif_walk, (void *)VIF_WALK_CONSTRUCT_NETLIST);
     return 0;
 }
 
-static char *hub_save(void)
+static void hub_sighup_handler(int sig, siginfo_t *info, void *ucontext)
 {
-    return NULL;
+    /* Reload config from file, if given */
+    if(g_state.config){
+        g_state.reload = 1;
+        g_state.run = 0;
+    }
 }
 
-static int hub_load(char *state)
+static void hub_sigint_handler(int sig, siginfo_t *info, void *ucontext)
 {
-    return -1;
+    g_state.run = 0;
+}
+
+static int hub_install_sigaction(void)
+{
+    int ret = 0;
+    struct sigaction sa_hup = {
+        .sa_sigaction = hub_sighup_handler,
+        .sa_flags = SA_SIGINFO | SA_SIGINFO,
+    };
+    struct sigaction sa_int = {
+        .sa_sigaction = hub_sigint_handler,
+        .sa_flags = SA_SIGINFO | SA_SIGINFO,
+    };
+
+    ret |= sigaction(SIGHUP, &sa_hup, NULL);
+    ret |= sigaction(SIGINT, &sa_int, NULL);
+    return ret;
 }
 
 int main(int argc, char *argv[])
@@ -754,37 +814,57 @@ int main(int argc, char *argv[])
     int ret = -1;
     struct client *t, *cli;
 
+    if(hub_install_sigaction())
+        goto cleanup;
+
     rbtree_setup(&g_state.rb, offsetof(struct vif_node, node), vif_compare, NULL);
     if(hub_parse_args(argc, argv)){
         hub_usage();
         goto cleanup;
     }
 
-    if(!g_state.nclients)
-        goto cleanup;
-
-    if(hub_construct_netlist())
-        goto cleanup;
-
-    debug_list_instances();
-    //debug_list_cgraph();
-    debug_list_nets();
-
-    while(1){
-        cli = g_state.clients;
-        if(!cli)
-            break;
-
-        while(cli){
-            if(CLIENT_TYPE_INTERNAL == cli->type){
-                if(coremodel_mainloop(ICLIENT(cli->inner)->cm, 10000)){
-                    t = cli->next;
-                    client_free(t);
-                    cli = t;
-                    continue;
-                }
+    g_state.run = 1;
+    while(g_state.run){
+        if(g_state.config)
+            if(hub_parse_config_file(g_state.config)){
+                pr_error("Failed to parse config file\n");
+                goto cleanup;
             }
-            cli = cli->next;
+
+        if(!g_state.nclients)
+            goto cleanup;
+
+        if(hub_construct_netlist()){
+            pr_error("Failed to construct netlist\n");
+            goto cleanup;
+        }
+
+        debug_list_instances();
+        debug_list_cgraph();
+        debug_list_nets();
+
+        while(g_state.run){
+            cli = g_state.clients;
+            if(!cli)
+                break;
+
+            while(cli){
+                if(CLIENT_TYPE_INTERNAL == cli->type){
+                    if(coremodel_mainloop(ICLIENT(cli->inner)->cm, 10000)){
+                        t = cli->next;
+                        client_free(t);
+                        cli = t;
+                        continue;
+                    }
+                }
+                cli = cli->next;
+            }
+        }
+
+        if(g_state.reload){
+            hub_cleanup_connections();
+            g_state.run = 1;
+            g_state.reload = 0;
         }
     }
 

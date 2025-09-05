@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <inttypes.h>
 #include <errno.h>
 #include <string.h>
 
@@ -17,15 +18,15 @@ static int test_can_tx(void *priv, uint64_t *ctrl, uint8_t *data)
     };
 
     if(dlen) {
-        printf("[%016lx %016lx] %d, ", ctrl[0], ctrl[1], dlen);
+        printf("[%016"PRIx64" %016"PRIx64"] %u, ", ctrl[0], ctrl[1], dlen);
         for(idx=0; idx<dlen; idx++)
             printf("%02x", data[idx]);
         printf("\n");
     } else
-        printf("[%016lx %016lx]\n", ctrl[0], ctrl[1]);
+        printf("[%016"PRIx64" %016"PRIx64"]\n", ctrl[0], ctrl[1]);
     fflush(stdout);
 
-    if(coremodel_can_rx(handle, &rxctrl, NULL))
+    if(coremodel_can_rx(handle, rxctrl, NULL))
         fprintf(stderr, "Rx send failed\n");
 
     return CAN_ACK;

@@ -275,29 +275,41 @@ void coremodel_spi_ready(void *spi);
 
 ## CAN Bus
 
-The CoreModel CAN APIs provides the ability to interface multiple devices to any available virtual CAN bus on the VM.
+The CoreModel CAN APIs provides the ability to interface multiple devices to any available virtual CAN bus on the VM. CAN 2.0, CAN FD, and CAN XL protocols are supported by the API independent of controller support.
 
 ### CAN Data Structure
 
 ```
-#define CAN_CTRL_ID_MASK        (0x7FFul << 29)
-#define  CAN_CTRL_ID_SHIFT      29
-#define CAN_CTRL_RTR            (1ul << 28)
-#define CAN_CTRL_IDE            (1ul << 27)
-#define CAN_CTRL_EID_MASK       (0x3FFFFul << 9)
-#define  CAN_CTRL_EID_SHIFT     9
-#define CAN_CTRL_ERTR           (1ul << 8)
-#define CAN_CTRL_EDL            (1ul << 7)
-#define CAN_CTRL_BRS            (1ul << 5)
-#define CAN_CTRL_ESI            (1ul << 4)
-#define CAN_CTRL_DLC_MASK       15ul
-#define  CAN_CTRL_DLC_SHIFT     0
+#define CAN_CTRL1_SEC           (1ul << 59)
+#define CAN_CTRL1_SDT_MASK      (0xFFul << CAN_CTRL1_SDT_SHIFT)
+#define CAN_CTRL1_SDT_SHIFT      51
+#define CAN_CTRL1_VCID_MASK     (0xFFul << CAN_CTRL1_VCID_SHIFT)
+#define CAN_CTRL1_VCID_SHIFT     43
+#define CAN_CTRL1_PRIO_MASK     (0x7FFul << CAN_CTRL1_PRIO_SHIFT)
+#define CAN_CTRL1_PRIO_SHIFT     32
+#define CAN_CTRL1_AF_MASK       (0xFFFFFFFFul << CAN_CTRL1_AF_SHIFT)
+#define CAN_CTRL1_AF_SHIFT       0
+
+#define CAN_CTRL_XLF            (1ul << 49)
+#define CAN_CTRL_FDF            (1ul << 48)
+#define CAN_CTRL_ID_MASK        (0x7FFul << CAN_CTRL_ID_SHIFT)
+#define CAN_CTRL_ID_SHIFT        36
+#define CAN_CTRL_RTR            (1ul << 35)
+#define CAN_CTRL_IDE            (1ul << 34)
+#define CAN_CTRL_EID_MASK       (0x3FFFFul << CAN_CTRL_EID_SHIFT)
+#define CAN_CTRL_EID_SHIFT       16
+#define CAN_CTRL_ERTR           (1ul << 15)
+#define CAN_CTRL_EDL            (1ul << 14)
+#define CAN_CTRL_BRS            (1ul << 12)
+#define CAN_CTRL_ESI            (1ul << 11)
+#define CAN_CTRL_DLC_MASK       (0x7FFul << CAN_CTRL_DLC_SHIFT)
+#define CAN_CTRL_DLC_SHIFT       0
 
 #define CAN_ACK                 0
 #define CAN_NAK                 1
 #define CAN_STALL               (-1)
 typedef struct {
-    int (*tx)(void *priv, uint64_t ctrl, uint8_t *data); /* return one of CAN_ACK, CAN_NAK, CAN_STALL */
+    int (*tx)(void *priv, uint64_t *ctrl, uint8_t *data); /* return one of CAN_ACK, CAN_NAK, CAN_STALL */
     void (*rxcomplete)(void *priv, int nak);
 } coremodel_can_func_t;
 ```
@@ -316,7 +328,7 @@ Send CAN packet over the virtual `<can>` interface. The `<data>` portion of the 
 `coremodel_can_rx` returns 0 on success if the bus is not available 1 will be returned.
 
 ```
-int coremodel_can_rx(void *can, uint64_t ctrl, uint8_t *data);
+int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data);
 ```
 
 ### CAN Ready

@@ -13,15 +13,15 @@ There are multiple standard device interfaces supported including UART, I2C, SPI
 
 Not all machine types support CoreModel API interface as they were built before CoreModel was implemented.
 The following machines have been updated for CoreModel support.
- 
-| Interface | I.MX93 | I.MX8 | RPI4B |
-| :-------: | :----: | :---: | :---: |
-| GPIO      | x      | x     | x     |
-| UART      | x      | x     | x     |
-| I2C       | x      | x     | x     |
-| SPI       | x      | x     | x     |
-| CAN       | x      | x     |       |
-| USBH      |        |       | x     |
+
+| Interface | I.MX93 | I.MX8 | RPI4B | STM32 |
+| :-------: | :----: | :---: | :---: | :---: |
+| GPIO      | x      | x     | x     | x     |
+| UART      | x      | x     | x     | x     |
+| I2C       | x      | x     | x     | x     |
+| SPI       | x      | x     | x     | x     |
+| CAN       | x      | x     |       |       |
+| USBH      |        |       | x     |       |
 
 New machine types will support CoreModel API interface.
 
@@ -29,14 +29,13 @@ New machine types will support CoreModel API interface.
 
 These API's and helper functions provide simple way to connect and interact with a VMs bus interfaces.
 
-
 ### Connection
 
 The coremodel_connect/disconnect functions provide a standard way to connect and disconnect over the network to the VM.
 The `coremodel_connect` function takes a `<target>` string formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success.
 The IP to use with CoreModel is the services IP of the VM and the port is 1900. You can find the services IP in the Connect tab of the VM.
 
-```
+```c
 /* Connect to a VM. */
 int coremodel_connect(const char *target);
 
@@ -51,7 +50,7 @@ Primarily the main loop handles processing the connection send and receive betwe
 `coremodel_mainloop` takes the parameter `usec` setting how much time to spend in the loop. The value of `usec` is specified in microseconds and if set to -1 will run indefinitely.
 The main loop will return an error flag of 0 on success. Helper function `coremodel_mainloop` wraps the usage of the file descriptor functions.
 
-```
+```c
 int coremodel_mainloop(long long usec);
 ```
 
@@ -59,7 +58,7 @@ int coremodel_mainloop(long long usec);
 
 The file descriptor functions set and process the read and write buffers of the attached device model.
 
-```
+```c
 /* Prepare fd_sets for select(2).
  *  nfds        current index of maximum fd in sets + 1
  *  readfds     readfds to update
@@ -80,7 +79,7 @@ int coremodel_processfds(fd_set *readfds, fd_set *writefds);
 
 Detach any device model by handle from the VM.
 
-```
+```c
 /*  handle      handle of UART/I2C/SPI/GPIO interface */
 void coremodel_detach(void *handle);
 ```
@@ -90,7 +89,7 @@ void coremodel_detach(void *handle);
 Device list functions provide a way to enumerate available bus interfaces of the VM into an array and free that array.
 The function `coremodel_list` returns an array of `coremodel_device_list_t` data structure and is terminated by the last element member `type` set to `COREMODEL_INVALID`.
 
-```
+```c
 /* Enumerates devices available in VM.
  * Returns invalid-terminated array of device structs. The array, as well as
  * names in it, is allocated by malloc(3). */
@@ -112,10 +111,9 @@ coremodel_device_list_t *coremodel_list(void);
 void coremodel_free_list(coremodel_device_list_t *list);
 ```
 
-
 ### Attach Interface
 
-All attach functions require a correct `<name>` be provided to generate a `handle` for the VMs interface. 
+All attach functions require a correct `<name>` be provided to generate a `handle` for the VMs interface.
 The correct name can be retrieved from device list.
 A proper `<func>` data structure for the specific interface is required.
 Any attach function will return `NULL` on failure.
@@ -129,7 +127,7 @@ The CoreModel UART APIs provides the ability to attach a single device to any av
 
 The following data structure represents required functions that need to be provided to `coremodel_attach_uart` for a device to interface with the VMs UART.
 
-```
+```c
 typedef struct {
     /* Called by CoreModel to transmit bytes. Return a >0 number to accept as
      * many bytes, or 0 to stall Tx interface (it will have to be un-stalled
@@ -148,7 +146,7 @@ Stub functions for `brk` and `rxrdy` can be provided if they are not required fo
 
 Attach to a virtual UART and returns the handle.
 
-```
+```c
 void *coremodel_attach_uart(const char *name, const coremodel_uart_func_t *func, void *priv);
 ```
 
@@ -156,7 +154,7 @@ void *coremodel_attach_uart(const char *name, const coremodel_uart_func_t *func,
 
 Attempt to send data over the virtual UART.
 
-```
+```c
 int coremodel_uart_rx(void *uart, unsigned len, uint8_t *data);
 ```
 
@@ -164,12 +162,11 @@ Provide `<uart>` the attached handle of the UART interface.
 The `<data>` and `<len>` of the array to send to the interface.
 Returns a number >0 of how many bytes were accepted if 0 then the interface is stalled. CoreModel will call `func->rxrdy` to un-stall the device.
 
-
 ### UART TX Ready
 
 Unstall a stalled Tx interface of the `<uart>` handle.
 
-```
+```c
 void coremodel_uart_txrdy(void *uart);
 ```
 
@@ -181,7 +178,7 @@ The CoreModel I2C APIs provides the ability to attach multiple devices to any av
 
 The data structure below is allocated and owned by the device model.
 
-```
+```c
 typedef struct {
     /* Called by CoreModel to notify of a START to a device; return -1 to NAK,
      * 0 to stall, 1 to accept. A stalled interface will have to be un-stalled
@@ -204,9 +201,9 @@ typedef struct {
 
 The virtual I2C bus only supports 7-bit addresses that are defined `<addr>` when the device is attached.
 Depending on the VM there could already be other devices on the bus and those addresses can not be used.
-`<flags>` can be set to notify the master of non standard behavior of the device. 
+`<flags>` can be set to notify the master of non standard behavior of the device.
 
-```
+```c
 #define COREMODEL_I2C_START_ACK 0x0001  /* device must ACK all starts */
 #define COREMODEL_I2C_WRITE_ACK 0x0002  /* device must ACK all writes */
 
@@ -217,21 +214,20 @@ void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_f
 
 Provide unsolicited data for lower access latency.
 
-```
+```c
 int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data);
 ```
 
 Push unsolicited I2C READ `<data>` of `<len>` in bytes to the `<i2c>` handle.
-Returns the number of accepted bytes by the host controller. 
+Returns the number of accepted bytes by the host controller.
 
 ### I2C Ready
 
-Signal CoreModel that the `<i2c>` handle of the interface is unstalled and can call `func->start/write/read` again. 
+Signal CoreModel that the `<i2c>` handle of the interface is unstalled and can call `func->start/write/read` again.
 
-```
+```c
 void coremodel_i2c_ready(void *i2c);
 ```
-
 
 ## SPI
 
@@ -239,10 +235,9 @@ The CoreModel SPI APIs provides the ability to attach multiple devices to any av
 The maximum amount of devices the virtual SPI bus supports can be different between VMs or even instances of SPI masters.
 To determine the maximum `<num>` of supported devices for the bus use device list. [described above](#device-list)
 
-
 ### SPI Data Structure
 
-```
+```c
 typedef struct {
     /* Called by CoreModel to notify of a CS pin change. */
     void (*cs)(void *priv, unsigned csel);
@@ -257,9 +252,9 @@ typedef struct {
 
 Attach a device to the VMs virtual SPI bus. Since multiple devices can be attached to the same SPI interface the chip select index `<csel>` must be >= 0 and < `<num>` max devices.
 VMs could have devices already on the SPI bus and their chip select index can not be used as they are hardwired inside the VM.
-`<flags>` can be set to notify the master of non standard behavior of the device. 
+`<flags>` can be set to notify the master of non standard behavior of the device.
 
-```
+```c
 #define COREMODEL_SPI_BLOCK     0x0001  /* device must handle >1 byte transfers */
 
 void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
@@ -267,9 +262,9 @@ void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_
 
 ### SPI Ready
 
-Notify CoreModel that the `<spi>` handle of the interface is unstalled and can call `func->xfr` again. 
+Notify CoreModel that the `<spi>` handle of the interface is unstalled and can call `func->xfr` again.
 
-```
+```c
 void coremodel_spi_ready(void *spi);
 ```
 
@@ -279,7 +274,7 @@ The CoreModel CAN APIs provides the ability to interface multiple devices to any
 
 ### CAN Data Structure
 
-```
+```c
 #define CAN_CTRL1_SEC           (1ul << 59)
 #define CAN_CTRL1_SDT_MASK      (0xFFul << CAN_CTRL1_SDT_SHIFT)
 #define CAN_CTRL1_SDT_SHIFT      51
@@ -318,7 +313,7 @@ typedef struct {
 
 Attach a device to a virtual CAN bus.
 
-```
+```c
 void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, void *priv);
 ```
 
@@ -327,7 +322,7 @@ void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, v
 Send CAN packet over the virtual `<can>` interface. The `<data>` portion of the packet is optional if control word `<ctrl>` DLC != 0.
 `coremodel_can_rx` returns 0 on success if the bus is not available 1 will be returned.
 
-```
+```c
 int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data);
 ```
 
@@ -335,7 +330,7 @@ int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data);
 
 Unstall the stalled virtual interface `<can>` signaling CoreModel that `func->tx` can be called once again.
 
-```
+```c
 void coremodel_can_ready(void *can);
 ```
 
@@ -343,11 +338,11 @@ void coremodel_can_ready(void *can);
 
 The CoreModel GPIO APIs provides the ability to interact with the VMs GPIO pins logical or voltage values.
 Caution should be taken when manipulating GPIO pins that are already being used internally by the VM as this could cause undefined behavior.
-The count of GPIO pins can be determined using device list. [described above](#device-list) 
+The count of GPIO pins can be determined using device list. [described above](#device-list)
 
 ### GPIO Notify Structure
 
-```
+```c
 typedef struct {
     /* Called by CoreModel to update voltage on a GPIO pin. */
     void (*notify)(void *priv, int mvolt);
@@ -358,7 +353,7 @@ typedef struct {
 
 Attach to a specified `<pin>` index in the bank of GPIO pins.
 
-```
+```c
 void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv);
 ```
 
@@ -366,7 +361,7 @@ void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio
 
 Set a tri-state driver on a GPIO `<pin>` interface, enabling or disabling the `<drven>` `<mvolt>` value in millivolts.
 
-```
+```c
 void coremodel_gpio_set(void *pin, unsigned drven, int mvolt);
 ```
 
@@ -376,7 +371,7 @@ The CoreModel USBH APIs provides the ability to interface multiple devices to an
 
 ### USBH Data Structure
 
-```
+```c
 /* USB Host (connect a local USB Device to a Host inside VM) */
 
 #define USB_TKN_OUT             0
@@ -400,7 +395,7 @@ typedef struct {
 Attach to a virtual USB host `<port>` index at a requested connection `<speed>`.
 VMs could have devices already on the USB bus and the port index those device are attached to should not be used as they are hardwired inside the VM.
 
-```
+```c
 #define USB_SPEED_LOW           0
 #define USB_SPEED_FULL          1
 #define USB_SPEED_HIGH          2
@@ -412,6 +407,6 @@ void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usb
 
 Unstall a stalled virtual USB interface end point `<ep>` with the token `<tkn>`  notifying CoreModel can call `func->xfr` once again.
 
-```
+```c
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
 ```

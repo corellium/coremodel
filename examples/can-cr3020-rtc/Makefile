@@ -20,4 +20,4 @@ libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
 
 clean:
 	rm -f can-cr3020 can-cansend libcoremodel.a
-	rm -rf *.dSYM
+	rm -rf *.dSYM .DS_Store

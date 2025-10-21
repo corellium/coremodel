@@ -17,3 +17,4 @@ libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
 
 clean:
 	rm -f spi-ds3234 libcoremodel.a
+	rm -rf *.dSYM .DS_Store

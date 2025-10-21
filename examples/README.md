@@ -1,20 +1,32 @@
 # CoreModel Examples
 
-The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93, IMX8, and RPI4B can be used to test connecting to the virtual interfaces.
+The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93, IMX8, and RPI4B can be used to test connecting to the virtual interfaces. While the STM32 also provides CoreModel interfaces it does not include firmware suitable for easy testing of I/O interfaces
 On boot of the VM the port number to use with CoreModel is provided by `model-gw:`.
 
+## Connecting
+
+Your VM will have two IP addresses, a `<lan>` ip and a `<services IP>` where you can often ssh to the `<lan>` ip to access the OS running on the VM while the `<services IP>` hosts the sockets used for CoreModel and other services. Occasionally you can directly access the `<services IP>` most of the time you need a VPN or SSH tunnel.
+
+### Recommended SSH Command
+
+```bash
+ssh <user>@<proxy> -L 1900:<services ip>:1900 -N
+ssh -J <user>@<proxy> <user>@<lan>
+```
+
+In this two command recommendation `<user>` is the UUID for the project. `<proxy>` is the ip address for the proxy/jump server. Note the use of the `-J` when connecting to the VM prompt. **WARNING** Do not combine `-L` and `-J` in the same ssh command, it will superficially appear to work but can cause the VM to become unresponsive which is difficult to debug. See [Connections.md](Connections.md) for details.
 
 ## List
 
 The list example shows how to properly use the list APIs and enumerate all of the available virtual interfaces on a VM. The list example can be run be command line by providing the `<ip:port>`.
 
-```
+```c
 ./coremodel-list 10.10.0.3:1900
 ```
 
 Below is the enumeration of an IMX93 VM interfaces. For interfaces like UART it will only return UARTs that do not have devices on them.
 
-```
+```c
 ----------------------------------------
 |  index  |  Type  |  name  |  number  |
 ----------------------------------------
@@ -49,7 +61,7 @@ Below is the enumeration of an IMX93 VM interfaces. For interfaces like UART it 
 
 The UART example shows how to properly attach to a virtual UART interface with the necessary functions to provide RX/TX between the VM and attached device. To attach to a UART `<ip:port>` and `<name>` of the UART interface needs to be provided.
 
-```
+```c
 ./coremodel-uart 10.10.0.3:1900 lpuart3
 ```
 
@@ -59,7 +71,7 @@ The example will print anything that has been sent from the VM to `stdout`.
 
 The I2C example provides an I2C dummy device that will attach to a virtual I2C interface. The I2C address 0x42 is statically defined in the example. If attaching to an address that is already used it will overwrite the device at that address. Attaching the dummy device to the I2C address provide `<ip:port>` and `<name>` of the I2C interface.
 
-```
+```c
 ./coremodel-i2c 10.10.0.3:1900 lpi2c0
 ```
 
@@ -69,7 +81,7 @@ The example will print anything that has been sent from the VM to `stdout`. The 
 
 The SPI example shows the basic way to connect to a virtual SPI bus and attaches a dummy device. The chip select is statically assigned to index 0. Attaching the dummy device to the SPI address provide `<ip:port>` and `<name>` of the SPI interface.
 
-```
+```c
 ./coremodel-spi 10.10.0.3:1900 lpspi0
 ```
 
@@ -79,7 +91,7 @@ The example will print anything that has been sent from the VM to `stdout`. The 
 
 The CAN example shows the basic way to connect to a virtual CAN bus and attaches a dummy device. Attaching the dummy device to the CAN address provide `<ip:port>` and `<name>` of the CAN interface.
 
-```
+```c
 ./coremodel-can 10.10.0.3:1900 can0
 ```
 
@@ -87,32 +99,32 @@ The example will print anything that has been sent from the VM to `stdout`. The 
 
 ## GPIO
 
-The GPIO example shows how to attach to the virtual GPIO interface and monitor GPIO pins. To attach and monitor GPIO pins provide `<ip:port>` and `<name>` of the GPIO interface followed by the `<index>` of the GPIO pins to be monitored. 
+The GPIO example shows how to attach to the virtual GPIO interface and monitor GPIO pins. To attach and monitor GPIO pins provide `<ip:port>` and `<name>` of the GPIO interface followed by the `<index>` of the GPIO pins to be monitored.
 
-```
+```c
 ./coremodel-gpio 10.10.0.3:1900 iomuxc 0 7 8 16
 ```
 
 The `coremodel-gpio` will print the voltage values in millivolts to `stdout` when the values change. The GPIO pins 7 is red, 8 is green, and 16 is blue LEDs of the IMX93.
 
-```
+```c
 GPIO[0] = 3300 mV
 GPIO[7] = 0 mV
 GPIO[8] = 0 mV
 GPIO[16] = 0 mV
-``` 
+```
 
 ## USBH
 
 The USBH example shows how to attach to the virtual USBH interface. To attach USBH dummy provide `<ip:port>` and `<name>` of the USBH interface followed by the `<port>` of the USBH bus.
 
-```
+```c
 ./coremodel-usbh 10.10.0.3:1900 xhci 0
 ```
 
 The example will print the data sent to the device on `USB_TKN_OUT`, `USB_TKN_IN`, and `USB_TKN_SETUP` to `stdout`. The IMX93 does not have an exposed USBH to CoreModel the following is from RPI4B.
 
-```
+```bash
 RESET
 XFR 00 EP0 SETUP [8]: 80 06 00 01 00 00 40 00 -> 8
 XFR 00 EP0 IN [64] -> 12 01 00 02 00 00 00 08 6b 1d 04 01 01 01 01 02 00 01
@@ -163,5 +175,4 @@ XFR 03 EP0 SETUP [8]: 21 09 00 02 00 00 01 00 -> 8
 XFR 03 EP0 OUT [1]: 00 -> 1
 XFR 03 EP1 IN [8] -> -1
 XFR 03 EP0 IN [0] -> -2
-
 ```

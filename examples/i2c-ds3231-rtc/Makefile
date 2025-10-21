@@ -19,3 +19,4 @@ libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
 
 clean:
 	rm -f i2c-ds3231 libcoremodel.a
+	rm -rf *.dSYM .DS_Store

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <coremodel.h>
 
@@ -30,8 +31,8 @@ int main(int argc, char *argv[])
     int res;
     void *handle;
 
-    if(argc != 3) {
-        printf("usage: coremodel-spi <address[:port]> <spi>\n");
+    if(argc != 4) {
+        printf("usage: coremodel-spi <address[:port]> <spi> <cs>\n");
         return 1;
     }
 
@@ -41,7 +42,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    handle = coremodel_attach_spi(argv[2], 0, &test_spi_func, NULL, COREMODEL_SPI_BLOCK);
+    handle = coremodel_attach_spi(argv[2], atoi(argv[3]), &test_spi_func, NULL, COREMODEL_SPI_BLOCK);
     if(!handle) {
         fprintf(stderr, "error: failed to attach SPI.\n");
         coremodel_disconnect();

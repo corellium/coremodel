@@ -1,3 +1,0 @@
-[submodule "hub/json-c"]
-	path = hub/json-c
-	url = ../../external/json-c.git

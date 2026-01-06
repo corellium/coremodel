@@ -2,12 +2,15 @@
 
 HOSTCC = $(PREFIX)gcc
 HOSTAR = $(PREFIX)ar
-CFLAGS = -g -Wall -I$(LIBSRC)
+CFLAGS = -g -Wall -I$(LIBSRC) -ldl -Wl,--no-as-needed -lm -lpthread
 LIBSRC ?= ../../
 
-all: coremodel-gpio
+all: coremodel-gpio coremodel-blinky
 
 coremodel-gpio: coremodel-gpio.c libcoremodel.a
+	$(HOSTCC) $(CFLAGS) -o $@ $^
+
+coremodel-blinky: coremodel-blinky.c libcoremodel.a
 	$(HOSTCC) $(CFLAGS) -o $@ $^
 
 libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
@@ -16,4 +19,4 @@ libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
 	@rm -f coremodel.o
 
 clean:
-	rm -f coremodel-gpio libcoremodel.a
+	rm -f coremodel-gpio libcoremodel.a coremodel-blinky

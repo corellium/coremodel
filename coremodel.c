@@ -1,7 +1,7 @@
 /*
  *  CoreModel C API
  *
- *  Copyright Corellium 2022
+ *  Copyright Corellium 2022-23
  *  SPDX-License-Identifier: Apache-2.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -34,6 +34,7 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <alloca.h>
+#include <pthread.h>
 
 #include "coremodel.h"
 
@@ -112,6 +113,12 @@ struct coremodel {
 
     unsigned query;
 
+    pthread_mutexattr_t coremodel_mutex_attr;
+    pthread_mutex_t coremodel_mutex;
+    int coremodel_wake_fd[2];
+    unsigned coremodel_need_wake;
+
+
     struct coremodel_if {
         struct coremodel *cm;
         struct coremodel_if *next;
@@ -150,6 +157,8 @@ static void *coremodel_init(void)
 
     cm->fd = -1;
     cm->etxbufs = &cm->txbufs;
+    cm->coremodel_wake_fd[0] = cm->coremodel_wake_fd[1] = -1;
+    cm->coremodel_need_wake = 0;
     return cm;
 }
 
@@ -160,8 +169,8 @@ static void coremodel_fini(void *priv)
 
 int coremodel_connect(void **priv, const char *target)
 {
-    struct coremodel *cm;
-    char *strp;
+    struct coremodel *cm = NULL;
+    char *strp = NULL;
     char *port = NULL;
     unsigned portn;
     struct hostent *hent;
@@ -171,23 +180,37 @@ int coremodel_connect(void **priv, const char *target)
     cm = coremodel_init();
     if(!cm){
         fprintf(stderr, "[coremodel] Memory allocation error.\n");
-        ret = -ENOMEM;
+        errno = ENOMEM;
         goto cleanup;
+    }
+
+    if(pthread_mutexattr_init(&cm->coremodel_mutex_attr) || pthread_mutexattr_settype(&cm->coremodel_mutex_attr, PTHREAD_MUTEX_RECURSIVE) || pthread_mutex_init(&cm->coremodel_mutex, &cm->coremodel_mutex_attr)) {
+        fprintf(stderr, "[coremodel] Failed to initialize mutex: %s.\n", strerror(errno));
+        goto err_entry;
+    }
+
+    if(pipe(cm->coremodel_wake_fd)) {
+        fprintf(stderr, "[coremodel] Failed to create wake-up pipe: %s.\n", strerror(errno));
+        goto err_mutex;
+    }
+    if(fcntl(cm->coremodel_wake_fd[0], F_SETFL, fcntl(cm->fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
+        fprintf(stderr, "[coremodel] Failed to set pipe non-blocking: %s.\n", strerror(errno));
+        goto err_pipe;
     }
 
     if(!target)
         target = getenv("COREMODEL_VM");
     if(!target) {
         fprintf(stderr, "[coremodel] Set environment variable COREMODEL_VM to the address:port of the Corellium VM and try again.\n");
-        ret = -EINVAL;
-        goto cleanup; 
+        errno = EINVAL;
+        goto err_pipe;
     }
 
     strp = malloc(strlen(target) + 1);
     if(!strp) {
         fprintf(stderr, "[coremodel] Memory allocation error.\n");
-        ret = -ENOMEM;
-        goto cleanup;
+        errno = ENOMEM;
+        goto err_pipe;
     }
     strcpy(strp, target);
 
@@ -201,15 +224,14 @@ int coremodel_connect(void **priv, const char *target)
     hent = gethostbyname(strp);
     if(!hent) {
         fprintf(stderr, "[coremodel] Failed to resolve host %s: %s.\n", strp, hstrerror(h_errno));
-        ret = -ENOENT;
-        goto cleanup;
+        errno = ENOENT;
+        goto err_pipe;
     }
 
     cm->fd = socket(AF_INET, SOCK_STREAM, 0);
     if(cm->fd < 0) {
         perror("[coremodel] Failed to create socket");
-        ret = -errno;
-        goto cleanup;
+        goto err_pipe;
     }
 
     memset(&saddr, 0, sizeof(saddr));
@@ -219,14 +241,12 @@ int coremodel_connect(void **priv, const char *target)
 
     if(connect(cm->fd, (struct sockaddr *)&saddr, sizeof(saddr)) != 0) {
         fprintf(stderr, "[coremodel] Failed to connect to %s:%d: %s.\n", strp, portn, strerror(errno));
-        ret = -errno;
-        goto cleanup;
+        goto err_socket;
     }
 
     if(fcntl(cm->fd, F_SETFL, fcntl(cm->fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
         fprintf(stderr, "[coremodel] Failed to set non-blocking: %s.\n", strerror(errno));
-        ret = -errno;
-        goto cleanup;
+        goto err_socket;
     }
 
     res = 1;
@@ -235,6 +255,19 @@ int coremodel_connect(void **priv, const char *target)
     ret = 0;
     *priv = cm;
 
+    return 0;
+
+
+err_socket:
+    close(cm->fd);
+    cm->fd = -1;
+err_pipe:
+    close(cm->coremodel_wake_fd[0]);
+    close(cm->coremodel_wake_fd[1]);
+    cm->coremodel_wake_fd[0] = cm->coremodel_wake_fd[1] = -1;
+err_mutex:
+    pthread_mutex_destroy(&cm->coremodel_mutex);
+    pthread_mutexattr_destroy(&cm->coremodel_mutex_attr);
 cleanup:
     if(ret && cm){
         if(cm->fd){
@@ -246,7 +279,8 @@ cleanup:
     }
     if(strp)
         free(strp);
-    return ret;
+err_entry:
+    return -errno;
 }
 
 static int coremodel_push_packet(void *priv, struct coremodel_packet *pkt, void *data)
@@ -254,6 +288,8 @@ static int coremodel_push_packet(void *priv, struct coremodel_packet *pkt, void 
     struct coremodel *cm = priv;
     unsigned len = pkt->len, dlen = (len + 3) & ~3;
     struct coremodel_txbuf *txb = calloc(1, sizeof(struct coremodel_txbuf) + dlen);
+    char wake;
+    int res;
 
     if(!txb)
         return 1;
@@ -267,6 +303,16 @@ static int coremodel_push_packet(void *priv, struct coremodel_packet *pkt, void 
     *cm->etxbufs = txb;
     cm->etxbufs = &txb->next;
     cm->txflag = 1;
+    if(cm->coremodel_need_wake) {
+        wake = 0;
+        while(1) {
+            res = write(cm->coremodel_wake_fd[1], &wake, 1);
+            if(res >= 0)
+                break;
+            if(errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
+                break;
+        }
+    }
     return 0;
 }
 
@@ -276,10 +322,15 @@ coremodel_device_list_t *coremodel_list(void *priv)
     struct coremodel_packet pkt = { .len = 8, .conn = CONN_QUERY, .pkt = PKT_QUERY_REQ_LIST };
     coremodel_device_list_t *res;
 
-    if(cm->query)
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    if(cm->query ) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
-    if(coremodel_push_packet(cm, &pkt, NULL))
+    }
+    if(coremodel_push_packet(cm, &pkt, NULL)) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
+    }
     cm->query = 1;
 
     if(coremodel_mainloop_int(cm, -1, 1)) {
@@ -291,6 +342,8 @@ coremodel_device_list_t *coremodel_list(void *priv)
     res = cm->device_list;
     cm->device_list = NULL;
     cm->device_list_size = 0;
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+
     return res;
 }
 
@@ -365,12 +418,17 @@ static void *coremodel_attach_int(void *priv, unsigned type, const char *name, u
     struct coremodel_packet *pkt;
     unsigned nlen = strlen(name);
 
-    if(cm->query)
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    if(cm->query) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
+    }
 
     cif = calloc(1, sizeof(struct coremodel_if));
-    if(!cif)
+    if(!cif) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
+    }
 
     pkt = alloca(sizeof(*pkt) + 8 + nlen);
     memset(pkt, 0, sizeof(*pkt));
@@ -384,6 +442,7 @@ static void *coremodel_attach_int(void *priv, unsigned type, const char *name, u
     memcpy(pkt->data + 8, name, nlen);
     if(coremodel_push_packet(cm, pkt, NULL)) {
         free(cif);
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
     }
 
@@ -405,9 +464,11 @@ static void *coremodel_attach_int(void *priv, unsigned type, const char *name, u
     if(cif->conn == CONN_QUERY) {
         free(cm->conn_if);
         cm->conn_if = NULL;
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
     }
     cm->conn_if = NULL;
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return cif;
 }
 
@@ -507,24 +568,37 @@ int coremodel_uart_rx(void *uart, unsigned len, uint8_t *data)
 {
     struct coremodel_if *cif = uart;
     struct coremodel_packet pkt = { .pkt = PKT_UART_RX };
+    struct coremodel *cm = cif->cm;
 
-    if(!cif || !cif->cred)
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    if(!cif || !cif->cred) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return 0;
+    }
     if(len > cif->cred)
         len = cif->cred;
 
     pkt.len = 8 + len;
     pkt.conn = cif->conn;
-    if(coremodel_push_packet(cif->cm, &pkt, data))
+
+    if(coremodel_push_packet(cif->cm, &pkt, data)) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return 0;
+    }
 
     cif->cred -= len;
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return len;
 }
 
 void coremodel_uart_txrdy(void *uart)
 {
+    struct coremodel_if *cif = uart;
+    struct coremodel *cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
     coremodel_ready_int(uart);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 static int coremodel_advance_if_i2c(struct coremodel_if *cif, struct coremodel_packet *pkt)
@@ -607,23 +681,34 @@ int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data)
 {
     struct coremodel_if *cif = i2c;
     struct coremodel_packet pkt = { .pkt = PKT_I2C_DONE };
+    struct coremodel *cm = cif->cm;
 
     if(!cif)
         return 0;
 
+    pthread_mutex_lock(&cm->coremodel_mutex);
     if(len > 255)
         len = 255;
     pkt.len = 8 + len;
     pkt.conn = cif->conn;
     pkt.hflag = cif->trnidx;
-    if(coremodel_push_packet(cif->cm, &pkt, data))
+
+    if(coremodel_push_packet(cif->cm, &pkt, data)) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return 0;
+    }
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return len;
 }
 
 void coremodel_i2c_ready(void *i2c)
 {
+    struct coremodel_if *cif = i2c;
+    struct coremodel *cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
     coremodel_ready_int(i2c);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 static int coremodel_advance_if_spi(struct coremodel_if *cif, struct coremodel_packet *pkt)
@@ -665,7 +750,12 @@ static int coremodel_advance_if_spi(struct coremodel_if *cif, struct coremodel_p
 
 void coremodel_spi_ready(void *spi)
 {
+    struct coremodel_if *cif = spi;
+    struct coremodel *cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
     coremodel_ready_int(spi);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 static int coremodel_advance_if_gpio(struct coremodel_if *cif, struct coremodel_packet *pkt)
@@ -683,14 +773,18 @@ void coremodel_gpio_set(void *pin, unsigned drven, int mvolt)
 {
     struct coremodel_if *cif = pin;
     struct coremodel_packet pkt = { .len = 8, .pkt = PKT_GPIO_FORCE };
+    struct coremodel *cm = cif->cm;
 
     if(!cif)
         return;
 
+    pthread_mutex_lock(&cm->coremodel_mutex);
     pkt.conn = cif->conn;
     pkt.bflag = !!drven;
     pkt.hflag = mvolt;
+
     coremodel_push_packet(cif->cm, &pkt, NULL);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 static int coremodel_advance_if_usbh(struct coremodel_if *cif, struct coremodel_packet *pkt)
@@ -767,10 +861,13 @@ static int coremodel_advance_if_usbh(struct coremodel_if *cif, struct coremodel_
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn)
 {
     struct coremodel_if *cif = usb;
+    struct coremodel *cm = cif->cm;
 
     if(cif) {
+        pthread_mutex_lock(&cm->coremodel_mutex);
         cif->ebusy &= ~(1ul << (ep * 4 + tkn));
         coremodel_advance_if(cif);
+        pthread_mutex_unlock(&cm->coremodel_mutex);
     }
 }
 
@@ -828,14 +925,19 @@ int coremodel_can_rx_busy(void *can)
 int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data)
 {
     struct coremodel_if *cif = can;
+    struct coremodel *cm = cif->cm;
     unsigned dlc, dlen;
     struct coremodel_packet pkt = { .pkt = PKT_CAN_RX };
     struct { uint64_t ctrl[2]; uint8_t data[2048]; } edata;
 
     dlc = (ctrl[0] & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT;
     dlen = (dlc < 16) ? coremodel_can_datalen[dlc] : dlc + 1;
-    if(!cif || cif->ebusy || (dlen && !data))
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    if(!cif || cif->ebusy || (dlen && !data)){
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return 1;
+    }
 
     cif->trnidx = (cif->trnidx + 1) & 255;
     memcpy(&edata.ctrl, ctrl, sizeof(edata.ctrl));
@@ -849,12 +951,18 @@ int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data)
     coremodel_push_packet(cif->cm, &pkt, (void *)&edata);
 
     cif->ebusy = 1;
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return 0;
 }
 
 void coremodel_can_ready(void *can)
 {
+    struct coremodel_if *cif = can;
+    struct coremodel *cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
     coremodel_ready_int(can);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 static void coremodel_advance_if(struct coremodel_if *cif)
@@ -976,8 +1084,18 @@ static void coremodel_process_rxq(void *priv)
 int coremodel_preparefds(void *priv, int nfds, fd_set *readfds, fd_set *writefds)
 {
     struct coremodel *cm = priv;
-    if(cm->fd < 0)
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+
+    if(cm->fd < 0) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
         return nfds;
+    }
+
+    FD_SET(cm->coremodel_wake_fd[0], readfds);
+    if(cm->coremodel_wake_fd[0] >= nfds)
+        nfds = cm->coremodel_wake_fd[0] + 1;
+    cm->coremodel_need_wake = 1;
 
     if(cm->rxqwp - cm->rxqrp < RX_BUF) {
         FD_SET(cm->fd, readfds);
@@ -991,6 +1109,7 @@ int coremodel_preparefds(void *priv, int nfds, fd_set *readfds, fd_set *writefds
     }
     cm->txflag = 0;
 
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return nfds;
 }
 
@@ -1000,9 +1119,23 @@ int coremodel_processfds(void *priv, fd_set *readfds, fd_set *writefds)
     struct coremodel_txbuf *txb;
     unsigned offs, tx_flag;
     int step, res;
+    char tmp[16];
 
-    if(cm->fd < 0)
-        return -ENOTCONN;
+    pthread_mutex_lock(&cm->coremodel_mutex);
+
+    cm->coremodel_need_wake = 0;
+    if(cm->fd < 0) {
+        errno = ENOTCONN;
+        goto err_lock;
+    }
+
+    if(FD_ISSET(cm->coremodel_wake_fd[0], readfds)) {
+        while(1) {
+            res = read(cm->coremodel_wake_fd[0], &tmp, sizeof(tmp));
+            if(res <= 0)
+                break;
+        }
+    }
 
     if(FD_ISSET(cm->fd, readfds))
         while(1) {
@@ -1016,16 +1149,18 @@ int coremodel_processfds(void *priv, fd_set *readfds, fd_set *writefds)
             if(res == 0) {
                 close(cm->fd);
                 cm->fd = -1;
-                return -ECONNRESET;
+                errno = ECONNRESET;
+                goto err_lock;
             }
             if(res < 0) {
                 if(errno == EINTR)
                     continue;
                 if(errno == EAGAIN || errno == EWOULDBLOCK)
                     break;
+
                 close(cm->fd);
                 cm->fd = -1;
-                return -errno;
+                goto err_lock;
             }
             cm->rxqwp += res;
         }
@@ -1042,7 +1177,8 @@ int coremodel_processfds(void *priv, fd_set *readfds, fd_set *writefds)
             if(res == 0) {
                 close(cm->fd);
                 cm->fd = -1;
-                return -ECONNRESET;
+                errno = ECONNRESET;
+                goto err_lock;
             }
             if(res < 0) {
                 if(errno == EINTR)
@@ -1051,7 +1187,7 @@ int coremodel_processfds(void *priv, fd_set *readfds, fd_set *writefds)
                     break;
                 close(cm->fd);
                 cm->fd = -1;
-                return -errno;
+                goto err_lock;
             }
             txb->rptr += res;
             if(txb->rptr >= txb->size) {
@@ -1062,7 +1198,12 @@ int coremodel_processfds(void *priv, fd_set *readfds, fd_set *writefds)
             }
         }
 
+    pthread_mutex_unlock(&cm->coremodel_mutex);
     return 0;
+
+err_lock:
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+    return -errno;
 }
 
 static uint64_t coremodel_get_microtime(void)
@@ -1109,10 +1250,12 @@ void coremodel_detach(void *handle)
     struct coremodel_packet pkt = { .len = 8, .conn = CONN_QUERY, .pkt = PKT_QUERY_REQ_DISC };
     struct coremodel_if *cif = handle, **pcif;
     struct coremodel_rxbuf *rxb;
+    struct coremodel *cm = cif->cm;
 
     if(!cif)
         return;
 
+    pthread_mutex_lock(&cm->coremodel_mutex);
     for(pcif=&cif->cm->ifs; *pcif; )
         if(*pcif == cif)
             *pcif = cif->next;
@@ -1128,6 +1271,7 @@ void coremodel_detach(void *handle)
     pkt.hflag = cif->conn;
     coremodel_push_packet(cif->cm, &pkt, NULL);
     free(cif);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
 void coremodel_disconnect(void *priv)
@@ -1139,6 +1283,10 @@ void coremodel_disconnect(void *priv)
         coremodel_detach(cm->ifs);
     close(cm->fd);
     cm->fd = -1;
+
+    close(cm->coremodel_wake_fd[0]);
+    close(cm->coremodel_wake_fd[1]);
+    cm->coremodel_wake_fd[0] = cm->coremodel_wake_fd[1] = -1;
 
     while(cm->txbufs) {
         txb = cm->txbufs;
@@ -1158,4 +1306,9 @@ void coremodel_disconnect(void *priv)
 
     cm->query = 0;
     coremodel_fini(cm);
+    pthread_mutex_destroy(&cm->coremodel_mutex);
+    pthread_mutexattr_destroy(&cm->coremodel_mutex_attr);
+
+    cm->coremodel_need_wake = 0;
+    cm->query = 0;
 }

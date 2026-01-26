@@ -98,6 +98,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
         if(coremodel_can_rx(state->handle, rxctrl, txdata))
             fprintf(stderr, "Rx send failed\n");
         free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
+        fflush(stdout);
         return CAN_ACK; // only handle a single transaction
     }
 
@@ -113,30 +114,35 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
             printf("RTC Set.\n");
             printf("Ignoring request to set Day %02x Month %02x Year %02x Hour %02x Minute %02x DOW %02x\n",
                 data[0], data[1], data[2], data[3], data[4], data[5]);
-            rxctrl[0] |= ((0x380ul + state->node_id) << CAN_CTRL_ID_SHIFT); // set return ID
+            rxctrl[0] |= ((0x280ul + state->node_id) << CAN_CTRL_ID_SHIFT); // set return ID
             rxctrl[0] |= (0x6ul << CAN_CTRL_DLC_SHIFT); // set return size
             txdata = malloc(sizeof(uint8_t) * 6);
 
             time_t system_time;
             time(&system_time);
+            uint8_t temp;
             struct tm *gmt_time = localtime(&system_time);
             txdata[0] = format_6bit_bcd(gmt_time->tm_mday);
-            printf("Day of Month [1-31] %02x\n", txdata[0]);
+            printf("Day of Month [1-31]: %02x\n", txdata[0]);
             txdata[1] = format_5bit_bcd(gmt_time->tm_mon + 1);
-            printf("Month [1-12] %02x\n", txdata[1]);
+            printf("Month [1-12] %02x + ", txdata[1]);
+            temp = format_5bit_bcd(gmt_time->tm_year / 100);
+            txdata[1] = txdata[1] + (temp << 7);
+            printf("[Century] %02x = %02x\n", temp, txdata[1]);
             txdata[2] = (((gmt_time->tm_year % 100) / 10) << 4) + gmt_time->tm_year % 10;
-            printf("Year since 1900 [0-99] %02x\n", txdata[2]);
+            printf("Year since 1900 [0-99]: %02x\n", txdata[2]);
             txdata[3] = format_6bit_bcd(gmt_time->tm_hour);
-            printf("Hours [00-23] %02x\n", txdata[3]);
+            printf("Hours [00-23]: %02x\n", txdata[3]);
             txdata[4] = format_7bit_bcd(gmt_time->tm_min);
-            printf("Minutes [00-59] %02x\n", txdata[4]);
+            printf("Minutes [00-59]: %02x\n", txdata[4]);
             txdata[5] = gmt_time->tm_wday + 1;
-            printf("Day of Week [1-7] %02x\n", txdata[5]);
+            printf("Day of Week [1-7]: %02x\n", txdata[5]);
             
             // send the reply
             if(coremodel_can_rx(state->handle, rxctrl, txdata))
                 fprintf(stderr, "Rx send failed\n");
             free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
+            fflush(stdout);
             return CAN_ACK; // only handle a single transaction
         }
     }
@@ -150,21 +156,25 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
 
         time_t system_time;
         time(&system_time);
+        uint8_t temp;
         struct tm *gmt_time = localtime(&system_time);
         txdata[0] = format_6bit_bcd(gmt_time->tm_mday);
-        printf("Day of Month [1-31] %02x\n", txdata[0]);
+        printf("Day of Month [1-31]: %02x\n", txdata[0]);
         txdata[1] = format_5bit_bcd(gmt_time->tm_mon + 1);
-        printf("Month [1-12] %02x\n", txdata[1]);
+        printf("Month [1-12] %02x + ", txdata[1]);
+        temp = format_5bit_bcd(gmt_time->tm_year / 100);
+        txdata[1] = txdata[1] + (temp << 7);
+        printf("[Century] %02x = %02x\n", temp, txdata[1]);
         txdata[2] = (((gmt_time->tm_year % 100) / 10) << 4) + gmt_time->tm_year % 10;
-        printf("Year since 1900 [0-99] %02x\n", txdata[2]);
+        printf("Year since 1900 [0-99]: %02x\n", txdata[2]);
         txdata[3] = format_6bit_bcd(gmt_time->tm_hour);
-        printf("Hours [00-23] %02x\n", txdata[3]);
+        printf("Hours [00-23]: %02x\n", txdata[3]);
         txdata[4] = format_7bit_bcd(gmt_time->tm_min);
-        printf("Minutes [00-59] %02x\n", txdata[4]);
+        printf("Minutes [00-59]: %02x\n", txdata[4]);
         txdata[5] = format_7bit_bcd(gmt_time->tm_sec);
-        printf("Seconds [00-59] %02x\n", txdata[5]);
+        printf("Seconds [00-59]: %02x\n", txdata[5]);
         txdata[6] = gmt_time->tm_wday + 1;
-        printf("Day of Week [1-7] %02x\n", txdata[6]);
+        printf("Day of Week [1-7]: %02x\n", txdata[6]);
         txdata[7] = 0x0; // Battery state sufficient
         printf("Battery State Sufficient\n");
         
@@ -172,6 +182,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
         if(coremodel_can_rx(state->handle, rxctrl, txdata))
             fprintf(stderr, "Rx send failed\n");
         free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
+        fflush(stdout);
         return CAN_ACK; // only handle a single transaction
     }
 
@@ -195,12 +206,12 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
 
             if (data[1] < 24)
                 state->alarm_hour = (gmt_time->tm_hour  + data[1]) % 24;
-            txdata[1] = format_6bit_bcd(state->alarm_hour);
+            txdata[1] = data[1];
             printf("Hours until alarm [00-23] %02x\n", txdata[1]);
 
             if (data[2] < 60)
-                state->alarm_minute = (gmt_time->tm_min  + data[2]) % 24;
-            txdata[1] = format_7bit_bcd(gmt_time->tm_min);
+                state->alarm_minute = (gmt_time->tm_min  + data[2]) % 60;
+            txdata[2] = data[2];
             printf("Minutes until alarm [00-59] %02x\n", txdata[2]);
 
             if (data[3] == data[4] && data[3] < 0x40) {
@@ -224,6 +235,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
             if(coremodel_can_rx(state->handle, rxctrl, txdata))
                 fprintf(stderr, "Rx send failed\n");
             free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
+            fflush(stdout);
             return CAN_ACK; // only handle a single transaction
         }
     }
@@ -231,7 +243,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
     // programming manual section 6.3.5
     if((ID == 0x400 + state->node_id) && (dlen == 0)) { // RTC request
         printf("Request Time to Alarm.\n");
-        rxctrl[0] |= ((0x180ul + state->node_id) << CAN_CTRL_ID_SHIFT); // set return ID
+        rxctrl[0] |= ((0x380ul + state->node_id) << CAN_CTRL_ID_SHIFT); // set return ID
         rxctrl[0] |= (0x7ul << CAN_CTRL_DLC_SHIFT); // set return size
         txdata = malloc(sizeof(uint8_t) * 7);
 
@@ -254,7 +266,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
         temp = state->alarm_minute;
         if (temp < gmt_time->tm_mday)
             temp += 60;
-        txdata[1] = format_7bit_bcd(temp - gmt_time->tm_min);
+        txdata[2] = format_7bit_bcd(temp - gmt_time->tm_min);
         printf("Minutes until alarm [00-59] %02x\n", txdata[2]);
 
         txdata[3] = state->node_id;
@@ -269,6 +281,7 @@ static int can_cr3020_receive(void *priv, uint64_t *ctrl, uint8_t *data)
         if(coremodel_can_rx(state->handle, rxctrl, txdata))
             fprintf(stderr, "Rx send failed\n");
         free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
+        fflush(stdout);
         return CAN_ACK; // only handle a single transaction
     }
 

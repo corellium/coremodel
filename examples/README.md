@@ -1,6 +1,7 @@
 # CoreModel Examples
 
-The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93, IMX8, and RPI4B can be used to test connecting to the virtual interfaces. While the STM32 also provides CoreModel interfaces it does not include firmware suitable for easy testing of I/O interfaces
+The CoreModel examples provide a skeleton for a device to be attached to a VMs virtual interfaces. There are independently compiled examples for the CoreModel API usage for list, UART, I2C, SPI, CAN, GPIO, and USBH. Not every VM type currently supports CoreModel API, the IMX93, IMX8, and RPI4B can be used to test connecting to the virtual interfaces. While the STM32 also provides CoreModel interfaces it does not include firmware suitable for easy testing of I/O interfaces.
+
 On boot of the VM the port number to use with CoreModel is provided by `model-gw:`.
 
 ## Connecting
@@ -27,34 +28,33 @@ The list example shows how to properly use the list APIs and enumerate all of th
 Below is the enumeration of an IMX93 VM interfaces. For interfaces like UART it will only return UARTs that do not have devices on them.
 
 ```c
-----------------------------------------
-|  index  |  Type  |  name  |  number  |
-----------------------------------------
-     0       gpio    iomuxc      108
-     1       uart    lpuart2     1
-     2       uart    lpuart3     1
-     3       uart    lpuart5     1
-     4       uart    lpuart6     1
-     5       uart    lpuart7     1
-     6       spi     lpspi0      2
-     7       spi     lpspi1      2
-     8       spi     lpspi2      2
-     9       spi     lpspi3      3
-    10       spi     lpspi4      2
-    11       spi     lpspi5      2
-    12       spi     lpspi6      2
-    13       spi     lpspi7      2
-    14       i2c     lpi2c0      128
-    15       i2c     lpi2c1      128
-    16       i2c     lpi2c2      128
-    17       i2c     lpi2c3      128
-    18       i2c     lpi2c4      128
-    19       i2c     lpi2c5      128
-    20       i2c     lpi2c6      128
-    21       i2c     lpi2c7      128
-    22       can     can0        1
-    23       can     can1        1
-
+ 0 gpio    iomuxc      108
+ 1 uart    lpuart1     1
+ 2 uart    lpuart2     1
+ 3 uart    lpuart3     1
+ 4 uart    lpuart4     1
+ 5 uart    lpuart6     1
+ 6 uart    lpuart7     1
+ 7 uart    lpuart8     1
+ 8 spi     lpspi0      2
+ 9 spi     lpspi1      2
+10 spi     lpspi2      2
+11 spi     lpspi3      3
+12 spi     lpspi4      2
+13 spi     lpspi5      2
+14 spi     lpspi6      2
+15 spi     lpspi7      2
+16 i2c     lpi2c1      128
+17 i2c     lpi2c2      128
+18 i2c     lpi2c3      128
+19 i2c     lpi2c4      128
+20 i2c     lpi2c5      128
+21 i2c     lpi2c6      128
+22 i2c     lpi2c7      128
+23 i2c     lpi2c8      128
+24 can     can0        1
+25 can     can1        1
+26 gpio    pcal6524    24
 ```
 
 ## UART
@@ -62,10 +62,10 @@ Below is the enumeration of an IMX93 VM interfaces. For interfaces like UART it 
 The UART example shows how to properly attach to a virtual UART interface with the necessary functions to provide RX/TX between the VM and attached device. To attach to a UART `<ip:port>` and `<name>` of the UART interface needs to be provided.
 
 ```c
-./coremodel-uart 10.10.0.3:1900 lpuart3
+./coremodel-uart 10.10.0.3:1900 lpuart0
 ```
 
-The example will print anything that has been sent from the VM to `stdout`.
+The example will print anything that has been sent from the VM to `/dev/ttyLP0` or `/dev/console` which will also show in the console tab of the Web UI. Note that by default on the IMX93 only lpuart1 is available for testing, lpuart5 is not available via CoreModel as it is connected to the bluetooth system while the other lpuarts are not enabled in the default device tree.
 
 ## I2C
 
@@ -102,16 +102,16 @@ The example will print anything that has been sent from the VM to `stdout`. The 
 The GPIO example shows how to attach to the virtual GPIO interface and monitor GPIO pins. To attach and monitor GPIO pins provide `<ip:port>` and `<name>` of the GPIO interface followed by the `<index>` of the GPIO pins to be monitored.
 
 ```c
-./coremodel-gpio 10.10.0.3:1900 iomuxc 0 7 8 16
+./coremodel-gpio 10.10.0.3:1900 iomuxc 0 8 16 17
 ```
 
-The `coremodel-gpio` will print the voltage values in millivolts to `stdout` when the values change. The GPIO pins 7 is red, 8 is green, and 16 is blue LEDs of the IMX93.
+The `coremodel-gpio` will print the voltage values in millivolts to `stdout` when the values change. On the IMX93 the LEDs shown on the UI are, from left to right, at indexes 17, 8, and 16. The LED can be controlled from the Linux command line using `gpioset` at gpiochip0 lines 13, 4, and 12, again left to right.
 
 ```c
 GPIO[0] = 3300 mV
-GPIO[7] = 0 mV
 GPIO[8] = 0 mV
 GPIO[16] = 0 mV
+GPIO[17] = 0 mV
 ```
 
 ## USBH

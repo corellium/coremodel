@@ -51,9 +51,9 @@ static int format_5bit_bcd(int binary_value)
 static void print_enabled(uint8_t value)
 {
     if ((value & 0x80) > 0) {
-        printf("Enabled");
+        printf("Alarm Enabled");
     } else {
-        printf("Disabled");
+        printf("Alarm Disabled");
     }
 }
 
@@ -183,44 +183,44 @@ static int i2c_ds3231_write(void *priv, unsigned len, uint8_t *data)
                 break;
             case 7: // Alarm 1 Seconds
                 state->Alarm1_Sec = data[idx];
-                printf("Setting Alarm 1 Seconds [00-59] %02x ", data[idx] & 0x7f);
+                printf("Setting Alarm 1 Seconds [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 8: // Alarm 1 Minutes
                 state->Alarm1_Min = data[idx];
-                printf("Setting Alarm 1 Minutes [00-59] %02x ", data[idx] & 0x7f);
+                printf("Setting Alarm 1 Minutes [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 9: // Alarm 1 Hours
                 state->Alarm1_Hours = data[idx];
-                printf("Setting Alarm 1 Hours [00-23] %02x ", data[idx] & 0x6f);
+                printf("Setting Alarm 1 Hours [00-23]: %02x ", data[idx] & 0x6f);
                 print_enabled(data[idx]);
                 break;
             case 0xA: // Alarm 1 Day Date
                 state->Alarm1_DayDate = data[idx];
                 if ((data[idx] & 0x40) > 0) {
-                    printf("Setting Alarm 1 Day [1-7] %02x ", data[idx] & 0x3f);
+                    printf("Setting Alarm 1 Day [1-7]: %02x ", data[idx] & 0x3f);
                 } else {
-                    printf("Setting Alarm 1 Date [0-31] %02x ", data[idx] & 0x3f);
+                    printf("Setting Alarm 1 Day of Month [1-31]: %02x ", data[idx] & 0x3f);
                 }
                 print_enabled(data[idx]);
                 break;
             case 0xB: // Alarm 2 Minutes
                 state->Alarm2_Min = data[idx];
-                printf("Setting Alarm 2 Minutes [00-59] %02x ", data[idx] & 0x7f);
+                printf("Setting Alarm 2 Minutes [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 0xC: // Alarm 2 Hours
                 state->Alarm2_Hours = data[idx];
-                printf("Setting Alarm 2 Hours [00-23] %02x ", data[idx] & 0x6f);
+                printf("Setting Alarm 2 Hours [00-23]: %02x ", data[idx] & 0x6f);
                 print_enabled(data[idx]);
                 break;
             case 0xD: // Alarm 2 Day Date
                 state->Alarm1_DayDate = data[idx];
                 if ((data[idx] & 0x40) > 0) {
-                    printf("Setting Alarm 2 Day [1-7] %02x ", data[idx] & 0x3f);
+                    printf("Setting Alarm 2 Day [1-7]: %02x ", data[idx] & 0x3f);
                 } else {
-                    printf("Setting Alarm 2 Date [0-31] %02x ", data[idx] & 0x3f);
+                    printf("Setting Alarm 2 Day of Month [1-31]: %02x ", data[idx] & 0x3f);
                 }
                 print_enabled(data[idx]);
                 break;
@@ -320,11 +320,11 @@ static int i2c_ds3231_read(void *priv, unsigned len, uint8_t *data)
                 // reread clock every time reg 0 is read
                 gmt_time = localtime(&state->system_time);
                 data[idx] = format_7bit_bcd(gmt_time->tm_sec);
-                printf("Seconds [00-59] %02x", data[idx]);
+                printf("Seconds [00-59]: %02x ", data[idx]);
                 break;
             case 1: // BCD Minutes
                 data[idx] = format_7bit_bcd(gmt_time->tm_min);
-                printf("Minutes [00-59] %02x", data[idx]);
+                printf("Minutes [00-59]: %02x ", data[idx]);
                 break;
             case 2: // BCD Hours
                 if (state->twelve_hour_flag > 0) {
@@ -333,70 +333,70 @@ static int i2c_ds3231_read(void *priv, unsigned len, uint8_t *data)
                     } else {
                         data[idx] = format_5bit_bcd(gmt_time->tm_hour - 12) + 0b01000000;
                     }
-                    printf("Hours flags + [00-11] %02x", data[idx]);
+                    printf("Hours flags + [00-11]: %02x ", data[idx]);
                 } else {
                     data[idx] = format_6bit_bcd(gmt_time->tm_hour);
-                    printf("Hours [00-23] %02x", data[idx]);
+                    printf("Hours [00-23]: %02x ", data[idx]);
                 }
                 break;
             case 3: // 1 based day of week
                 data[idx] = gmt_time->tm_wday + 1;
-                printf("Day of Week [1-7] %02x", data[idx]);
+                printf("Day of Week [1-7]: %02x ", data[idx]);
                 break;
             case 4: // 1 based day of month
                 data[idx] = format_6bit_bcd(gmt_time->tm_mday);
-                printf("Day of Month [1-31] %02x", data[idx]);
+                printf("Day of Month [1-31]: %02x ", data[idx]);
                 break;
             case 5: // centry + month
                 data[idx] = ((gmt_time->tm_year / 100) << 7)+ format_5bit_bcd(gmt_time->tm_mon + 1);
-                printf("Month [1-12] %02x + [Century] %02x = %02x",
+                printf("Month [1-12] %02x + [Century] %02x = %02x ",
                     data[idx] & 0b11111, data[idx] >> 7, data[idx]);
                 break;
             case 6: // year
                 data[idx] = (((gmt_time->tm_year % 100) / 10) << 4)
                 + gmt_time->tm_year % 10;
-                printf("Year since 1900 [0-99] %02x", data[idx]);
+                printf("Year since 1900 [0-99]: %02x ", data[idx]);
                 break;
             case 7: // Alarm 1 Seconds
                 data[idx] = state->Alarm1_Sec;
-                printf("Alarm 1 Seconds [00-59] %02x ", data[idx] & 0x7f);
+                printf("Alarm 1 Seconds [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 8: // Alarm 1 Minutes
                 data[idx] = state->Alarm1_Min;
-                printf("Alarm 1 Minutes [00-59] %02x ", data[idx] & 0x7f);
+                printf("Alarm 1 Minutes [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 9: // Alarm 1 Hours
                 data[idx] = state->Alarm1_Hours;
-                printf("Alarm 1 Hours [00-23] %02x ", data[idx] & 0x6f);
+                printf("Alarm 1 Hours [00-23]: %02x ", data[idx] & 0x6f);
                 print_enabled(data[idx]);
                 break;
             case 0xA: // Alarm 1 Day Date
                 data[idx] = state->Alarm1_DayDate;
                 if ((data[idx] & 0x40) > 0) {
-                    printf("Alarm 1 Day [1-7] %02x ", data[idx] & 0x3f);
+                    printf("Alarm 1 Day [1-7]: %02x ", data[idx] & 0x3f);
                 } else {
-                    printf("Alarm 1 Date [0-31] %02x ", data[idx] & 0x3f);
+                    printf("Alarm 1 Day of Month [1-31]: %02x ", data[idx] & 0x3f);
                 }
                 print_enabled(data[idx]);
                 break;
             case 0xB: // Alarm 2 Minutes
                 data[idx] = state->Alarm2_Min;
-                printf("Alarm 2 Minutes [00-59] %02x ", data[idx] & 0x7f);
+                printf("Alarm 2 Minutes [00-59]: %02x ", data[idx] & 0x7f);
                 print_enabled(data[idx]);
                 break;
             case 0xC: // Alarm 2 Hours
                 data[idx] = state->Alarm2_Hours;
-                printf("Alarm 2 Hours [00-23] %02x ", data[idx] & 0x6f);
+                printf("Alarm 2 Hours [00-23]: %02x ", data[idx] & 0x6f);
                 print_enabled(data[idx]);
                 break;
             case 0xD: // Alarm 2 Day Date
                 data[idx] = state->Alarm1_DayDate;
                 if ((data[idx] & 0x40) > 0) {
-                    printf("Alarm 2 Day [1-7] %02x ", data[idx] & 0x3f);
+                    printf("Alarm 2 Day [1-7]: %02x ", data[idx] & 0x3f);
                 } else {
-                    printf("Alarm 2 Date [0-31] %02x ", data[idx] & 0x3f);
+                    printf("Alarm 2 Day of Month [1-31]: %02x ", data[idx] & 0x3f);
                 }
                 print_enabled(data[idx]);
                 break;
@@ -462,17 +462,17 @@ static int i2c_ds3231_read(void *priv, unsigned len, uint8_t *data)
             case 0x11: // Temperature upper byte not implemented
             // statically return 25C
                 data[idx] = 0b00011001;
-                printf("The Temperature is %02d C", (int8_t) data[idx]);
+                printf("Temperature Upper: %02d C ", (int8_t) data[idx]);
                 break;
             case 0x12: // Temperature lower byte not implemented
             // statically return .25C
                 data[idx] = 1 << 6;
-                printf(".%02d", (data[idx] > 6) * 25);
+                printf("Temperature Lower: .%02d C ", (data[idx] > 6) * 25);
                 break;
         }
-        printf("\n");
-        fflush(stdout);
     }
+    printf("\n");
+    fflush(stdout);
     state->index = (offset + 1) % 0x13;
     return len;
 }
@@ -511,14 +511,14 @@ int main(int argc, char *argv[])
     time(&state->system_time);
     state->index = 0;
     state->start = 0;
-    state->twelve_hour_flag = 0; // reset value is undefined in HW
-    state->Alarm1_Sec = 0; // reset value is undefined in HW
-    state->Alarm1_Min = 0; // reset value is undefined in HW
-    state->Alarm1_Hours = 0; // reset value is undefined in HW
-    state->Alarm1_DayDate = 0; // reset value is undefined in HW
-    state->Alarm2_Min = 0; // reset value is undefined in HW
-    state->Alarm2_Hours = 0; // reset value is undefined in HW
-    state->Alarm2_DayDate = 0; // reset value is undefined in HW
+    state->twelve_hour_flag = 0;
+    state->Alarm1_Sec = 0;
+    state->Alarm1_Min = 0;
+    state->Alarm1_Hours = 0;
+    state->Alarm1_DayDate = 1;
+    state->Alarm2_Min = 0;
+    state->Alarm2_Hours = 0;
+    state->Alarm2_DayDate = 1;
     state->control = 0b00011100;
     state->status = 0b10001000;
     state->aging = 0;

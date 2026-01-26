@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     cansend_state_t *state;
 
     if(argc != 4 || strlen(argv[3]) < 4 || argv[3][3] != '#' || strlen(argv[3]) > 20) {
-        printf("usage: coremodel-can <address[:port]> <can> <data>\n");
+        printf("usage: coremodel-cansend <address[:port]> <can> <data>\n");
         printf("data is 3 hex character address followed by the # character\n");
         printf("payload is up to 16 hex characters (8 bytes)\n");
         return 1;

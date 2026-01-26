@@ -52,9 +52,9 @@ static int format_5bit_bcd(int binary_value)
 static void print_enabled(uint8_t value)
 {
     if ((value & 0x80) > 0) {
-        printf("Enabled");
+        printf("Alarm Enabled");
     } else {
-        printf("Disabled");
+        printf("Alarm Disabled");
     }
 }
 
@@ -143,19 +143,19 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
         case 0: // BCD Seconds
             if (WRITE) {
                 printf("Ignoring write of %02x to seconds register", data);
-            } else{ 
+            } else {
                 // reread clock every time reg 0 is read
                 gmt_time = localtime(&state->system_time);
                 data = format_7bit_bcd(gmt_time->tm_sec);
-                printf("Seconds [00-59] %02x", data);
+                printf("Seconds [00-59]: %02x", data);
             }
             break;
         case 1: // BCD Minutes
             if(WRITE) {
                 printf("Ignoring write of %02x to minutes register", data);
-            } else{
+            } else {
                 data = format_7bit_bcd(gmt_time->tm_min);
-                printf("Minutes [00-59] %02x", data);
+                printf("Minutes [00-59]: %02x", data);
             }
             break;
         case 2: // BCD Hours
@@ -174,10 +174,10 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
                     } else {
                         data = format_5bit_bcd(gmt_time->tm_hour - 12) + 0b01000000;
                     }
-                    printf("Hours flags + [00-11] %02x", data);
+                    printf("Hours flags + [00-11]: %02x", data);
                 } else {
                     data = format_6bit_bcd(gmt_time->tm_hour);
-                    printf("Hours [00-23] %02x", data);
+                    printf("Hours [00-23]: %02x", data);
                 }
             }
             break;
@@ -186,7 +186,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
                 printf("Ignoring write of %02x to day of week register", data);
             } else {
                 data = gmt_time->tm_wday + 1;
-                printf("Day of Week [1-7] %02x", data);
+                printf("Day of Week [1-7]: %02x", data);
             }
             break;
         case 4: // 1 based day of month
@@ -194,7 +194,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
                 printf("Ignoring write of %02x to day of month register", data);
             } else {
                 data = format_6bit_bcd(gmt_time->tm_mday);
-                printf("Day of Month [1-31] %02x", data);
+                printf("Day of Month [1-31]: %02x", data);
             }
             break;
         case 5: // centry + month
@@ -212,7 +212,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data = (((gmt_time->tm_year % 100) / 10) << 4)
                 + gmt_time->tm_year % 10;
-                printf("Year since 1900 [0-99] %02x", data);
+                printf("Year since 1900 [0-99]: %02x", data);
             }
             break;
         case 7: // Alarm 1 Seconds
@@ -222,7 +222,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data = state->Alarm1_Sec;
             }
-            printf("Alarm 1 Seconds [00-59] %02x ", data & 0x7f);
+            printf("Alarm 1 Seconds [00-59]: %02x ", data & 0x7f);
             print_enabled(data);
             break;
         case 8: // Alarm 1 Minutes
@@ -232,7 +232,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data = state->Alarm1_Min;
             }
-            printf("Alarm 1 Minutes [00-59] %02x ", data & 0x7f);
+            printf("Alarm 1 Minutes [00-59]: %02x ", data & 0x7f);
             print_enabled(data);
             break;
         case 9: // Alarm 1 Hours
@@ -242,7 +242,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data= state->Alarm1_Hours;
             }
-            printf("Alarm 1 Hours [00-23] %02x ", data & 0x6f);
+            printf("Alarm 1 Hours [00-23]: %02x ", data & 0x6f);
             print_enabled(data);
             break;
         case 0xA: // Alarm 1 Day Date
@@ -253,9 +253,9 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
                 data = state->Alarm1_DayDate;
             }
             if ((data & 0x40) > 0) {
-                printf("Alarm 1 Day [1-7] %02x ", data & 0x3f);
+                printf("Alarm 1 Day [1-7]: %02x ", data & 0x3f);
             } else {
-                printf("Alarm 1 Date [0-31] %02x ", data & 0x3f);
+                printf("Alarm 1 Day of Month [1-31]: %02x ", data & 0x3f);
             }
             print_enabled(data);
             break;
@@ -266,7 +266,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data = state->Alarm2_Min;
             }
-            printf("Alarm 2 Minutes [00-59] %02x ", data & 0x7f);
+            printf("Alarm 2 Minutes [00-59]: %02x ", data & 0x7f);
             print_enabled(data);
             break;
         case 0xC: // Alarm 2 Hours
@@ -276,7 +276,7 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
             } else {
                 data = state->Alarm2_Hours;
             }
-            printf("Alarm 2 Hours [00-23] %02x ", data & 0x6f);
+            printf("Alarm 2 Hours [00-23]: %02x ", data & 0x6f);
             print_enabled(data);
             break;
         case 0xD: // Alarm 2 Day Date
@@ -287,9 +287,9 @@ static uint8_t access_reg(ds3234_state_t *state, unsigned ADDR, unsigned WRITE, 
                 data = state->Alarm1_DayDate;
             }
             if ((data & 0x40) > 0) {
-                printf("Alarm 2 Day [1-7] %02x ", data & 0x3f);
+                printf("Alarm 2 Day [1-7]: %02x ", data & 0x3f);
             } else {
-                printf("Alarm 2 Date [0-31] %02x ", data & 0x3f);
+                printf("Alarm 2 Day of Month [1-31]: %02x ", data & 0x3f);
             }
             print_enabled(data);
             break;
@@ -416,7 +416,7 @@ static int spi_ds3234_xfr(void *priv, unsigned len, uint8_t *wrdata, uint8_t *rd
         printf(" %02x", wrdata[idx]);
     printf("\n");
     fflush(stdout);
-        
+
     rddata[0] = 0; // per spec first read byte is always high impedance
 
     if(ADDR < 0x13) { // RTC Registers
@@ -441,12 +441,12 @@ static int spi_ds3234_xfr(void *priv, unsigned len, uint8_t *wrdata, uint8_t *rd
         for(idx = 1; idx<len; idx++) {
             rddata[idx] = access_reg(state, ADDR, WRITE, wrdata[idx]);
         }
-    } else { // undefined per spec, assumed high impedance, implemented as byte count 
+    } else { // undefined per spec, assumed high impedance, implemented as byte count
         for(idx=0; idx<len; idx++) {
             rddata[idx] = '0' + (idx & 63);
         }
     }
-    
+
     if(ADDR < 0x20) {
         if(WRITE)
             printf("Write\n");
@@ -454,7 +454,7 @@ static int spi_ds3234_xfr(void *priv, unsigned len, uint8_t *wrdata, uint8_t *rd
             printf("Read\n");
         fflush(stdout);
     }
-        
+
     printf("TX [%d]", len);
     for(idx=0; idx<len; idx++) {
         printf(" %02x", rddata[idx]);
@@ -467,7 +467,7 @@ static int spi_ds3234_xfr(void *priv, unsigned len, uint8_t *wrdata, uint8_t *rd
 static const coremodel_spi_func_t spi_ds3234_func = {
     .cs = spi_ds3234_cs,
     .xfr = spi_ds3234_xfr };
- 
+
 int main(int argc, char *argv[])
 {
     int res;
@@ -489,14 +489,14 @@ int main(int argc, char *argv[])
     // Initialize the state of the device to POR values
     time(&state->system_time);
     state->index = 0;
-    state->twelve_hour_flag = 0; // reset value is undefined in HW
-    state->Alarm1_Sec = 0; // reset value is undefined in HW
-    state->Alarm1_Min = 0; // reset value is undefined in HW
-    state->Alarm1_Hours = 0; // reset value is undefined in HW
-    state->Alarm1_DayDate = 0; // reset value is undefined in HW
-    state->Alarm2_Min = 0; // reset value is undefined in HW
-    state->Alarm2_Hours = 0; // reset value is undefined in HW
-    state->Alarm2_DayDate = 0; // reset value is undefined in HW
+    state->twelve_hour_flag = 0;
+    state->Alarm1_Sec = 0;
+    state->Alarm1_Min = 0;
+    state->Alarm1_Hours = 0;
+    state->Alarm1_DayDate = 1;
+    state->Alarm2_Min = 0;
+    state->Alarm2_Hours = 0;
+    state->Alarm2_DayDate = 1;
     state->control = 0b00011100;
     state->status = 0b10001000;
     state->aging = 0;

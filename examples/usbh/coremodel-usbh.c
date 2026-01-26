@@ -189,15 +189,15 @@ static int test_usbh_xfr_int(void *priv, uint8_t dev, uint8_t ep, uint8_t tkn, u
                 case USB_DT_CONFIG:
                     vkb_state.wLength = imin32(sizeof(vkb_conf_desc), vkb_state.wLength);
                     memcpy(vkb_state.ep0buf, vkb_conf_desc, vkb_state.wLength);
-                    vkb_state.ep0buf[2] = sizeof(vkb_conf_desc);
-                    vkb_state.ep0buf[3] = sizeof(vkb_conf_desc) >> 8;
+                    vkb_state.ep0buf[2] = vkb_state.wLength & 0xFF;
+                    vkb_state.ep0buf[3] = vkb_state.wLength >> 8;
                     return size;
                 case USB_DT_STRING:
                     i = vkb_state.wValue & 255;
                     if(i < sizeof(vkb_str_desc_tbl) / sizeof(vkb_str_desc_tbl[0])) {
                         vkb_state.wLength = imin32(vkb_str_desc_tbl[i].size, vkb_state.wLength);
                         memcpy(vkb_state.ep0buf, vkb_str_desc_tbl[i].data, vkb_state.wLength);
-                        vkb_state.ep0buf[0] = vkb_str_desc_tbl[i].size;
+                        vkb_state.ep0buf[0] = vkb_state.wLength & 0xFF;
                         return size;
                     }
                 }

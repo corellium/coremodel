@@ -107,9 +107,11 @@ static void hub_free_tuple(char **tuple)
 
 static char **hub_parse_tuple(const char *tuple, int len, char *sep)
 {
-    char **v, *s, *t;
-    unsigned i = 0;
+    char **v, *s, *t, *u;
+    unsigned sz, q, i, j;
+    int seps[len];
 
+    sz = strlen(tuple);
     s = t = strdup(tuple);
     if(!s)
         return NULL;
@@ -120,18 +122,48 @@ static char **hub_parse_tuple(const char *tuple, int len, char *sep)
         return NULL;
     }
 
-    while(*s)
-        i += (*s++ == *sep);
+    /* Count and cache the number of seps */
+    i = q = 0;
+    while(*s && ((s - t) <= sz)){
+        q ^= (*s == '\"');
+        if(!q && (*s == *sep)){
+            seps[i++] = (s - t);
+            *(t + (s - t)) = '\0';
+        }
+        s++;
+    }
 
+    if(i+1 != len){
+        pr_error("Malformed argument\n");
+        goto err;
+    }
+
+    /* Save each substring, removing parenthesis as needed */
     i = len - i - 1;
-    if((s = strtok(t, sep)))
-        do{
-            v[i++] = strdup(s);
-        }while((s = strtok(NULL, sep)));
+    for(s=t,j=0; j<len; j++, i++){
+        v[i] = strdup(s);
+        if('\"' == *s){
+            if( !(u = strchr(s + 1, '\"')) ){
+                pr_error("Unbalanced parenthesis in arguments\n");
+                goto err;
+            }
+            memcpy(v[i], s + 1, u - s - 1);
+            v[i][u - s - 1] = '\0';
+        }
+        s = t + seps[j] + 1;
+    }
 
     v[len] = (void *)-1ull;
     free(t);
+
     return v;
+
+err:
+    if(v)
+        free(v);
+    if(t)
+        free(t);
+    return NULL;
 }
 
 static char *client_mkname(void)

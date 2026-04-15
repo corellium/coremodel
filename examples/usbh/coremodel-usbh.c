@@ -318,34 +318,35 @@ static int test_usbh_xfr(void *priv, uint8_t dev, uint8_t ep, uint8_t tkn, uint8
 static const coremodel_usbh_func_t test_usbh_func = {
     .rst = test_usbh_rst,
     .xfr = test_usbh_xfr };
- 
+
 int main(int argc, char *argv[])
 {
     int res;
     void *handle;
+    void *cm;
 
     if(argc != 4) {
         printf("usage: coremodel-usbh <address[:port]> <usbh> <usbh-port>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
     }
 
-    handle = coremodel_attach_usbh(argv[2], strtoul(argv[3], NULL, 0), &test_usbh_func, NULL, USB_SPEED_FULL);
+    handle = coremodel_attach_usbh(cm, argv[2], strtoul(argv[3], NULL, 0), &test_usbh_func, NULL, USB_SPEED_FULL);
     if(!handle) {
         fprintf(stderr, "error: failed to attach to USB host.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

@@ -310,13 +310,14 @@ int main(int argc, char *argv[])
 {
     int res;
     cr3020_state_t *state;
+    void *cm;
 
     if(argc != 3) {
         printf("usage: coremodel-can <address[:port]> <can>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
@@ -324,7 +325,7 @@ int main(int argc, char *argv[])
 
     state = malloc(sizeof(cr3020_state_t));
 
-    state->handle = coremodel_attach_can(argv[2], &test_can_func, state);
+    state->handle = coremodel_attach_can(cm, argv[2], &test_can_func, state);
     state->initialized = 0;
     state->node_id = 0x13; // per CANopen max ID == 0x3F
     state->alarm_day = 0;
@@ -334,14 +335,14 @@ int main(int argc, char *argv[])
 
     if(!state->handle) {
         fprintf(stderr, "error: failed to attach CAN.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(state->handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

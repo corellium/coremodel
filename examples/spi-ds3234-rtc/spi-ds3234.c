@@ -473,13 +473,14 @@ int main(int argc, char *argv[])
     int res;
     void *handle;
     ds3234_state_t *state;
+    void *cm;
 
     if(argc != 4) {
         printf("usage: coremodel-spi <address[:port]> <spi> <cs>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
@@ -502,17 +503,17 @@ int main(int argc, char *argv[])
     state->aging = 0;
     state->SRAM_Address = 0;
     state->SRAM_Data = malloc(sizeof(uint8_t)*256);
-    handle = coremodel_attach_spi(argv[2], atoi(argv[3]), &spi_ds3234_func, state, COREMODEL_SPI_BLOCK);
+    handle = coremodel_attach_spi(cm, argv[2], atoi(argv[3]), &spi_ds3234_func, state, COREMODEL_SPI_BLOCK);
     if(!handle) {
         fprintf(stderr, "error: failed to attach SPI.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

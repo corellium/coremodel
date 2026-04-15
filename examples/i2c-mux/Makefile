@@ -5,9 +5,9 @@ HOSTAR = $(PREFIX)ar
 CFLAGS = -g -Wall -I$(LIBSRC) -ldl -Wl,--no-as-needed -lm -lpthread
 LIBSRC ?= ../../
 
-all: coremodel-usbh
+all: coremodel-i2c-mux
 
-coremodel-usbh: coremodel-usbh.c libcoremodel.a
+coremodel-i2c-mux: coremodel-i2c-mux.c libcoremodel.a coremodel-i2c.c
 	$(HOSTCC) $(CFLAGS) -o $@ $^
 
 libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
@@ -16,4 +16,4 @@ libcoremodel.a: $(LIBSRC)coremodel.c $(LIBSRC)coremodel.h
 	@rm -f coremodel.o
 
 clean:
-	rm -f coremodel-usbh libcoremodel.a
+	rm -f coremodel-i2c-mux libcoremodel.a

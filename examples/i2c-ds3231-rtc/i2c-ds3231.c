@@ -494,13 +494,14 @@ int main(int argc, char *argv[])
     int res;
     void *handle;
     ds3231_state_t *state;
+    void *cm;
 
     if(argc != 3) {
         printf("usage: coremodel-i2c <address[:port]> <i2c>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
@@ -522,17 +523,17 @@ int main(int argc, char *argv[])
     state->control = 0b00011100;
     state->status = 0b10001000;
     state->aging = 0;
-    handle = coremodel_attach_i2c(argv[2], 0x42, &i2c_ds3231_func, state, 0);
+    handle = coremodel_attach_i2c(cm, argv[2], 0x42, &i2c_ds3231_func, state, 0);
     if(!handle) {
         fprintf(stderr, "error: failed to attach i2c.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

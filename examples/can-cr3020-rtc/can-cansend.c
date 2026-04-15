@@ -62,6 +62,7 @@ int main(int argc, char *argv[])
 {
     int res;
     cansend_state_t *state;
+    void *cm;
 
     if(argc != 4 || strlen(argv[3]) < 4 || argv[3][3] != '#' || strlen(argv[3]) > 20) {
         printf("usage: coremodel-cansend <address[:port]> <can> <data>\n");
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
@@ -78,10 +79,10 @@ int main(int argc, char *argv[])
 
     state = malloc(sizeof(cansend_state_t));
 
-    state->handle = coremodel_attach_can(argv[2], &can_cansend_func, state);
+    state->handle = coremodel_attach_can(cm, argv[2], &can_cansend_func, state);
     if(!state->handle) {
         fprintf(stderr, "error: failed to attach CAN.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
@@ -135,10 +136,10 @@ int main(int argc, char *argv[])
     if(dln > 0)
         free(txdata); // WARNING when porting to CHARM this may need to move to _rxcomplete
 
-    coremodel_mainloop(1);
+    coremodel_mainloop(cm, 1);
 
     coremodel_detach(state->handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

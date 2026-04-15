@@ -32,26 +32,29 @@ These API's and helper functions provide simple way to connect and interact with
 ### Connection
 
 The coremodel_connect/disconnect functions provide a standard way to connect and disconnect over the network to the VM.
-The `coremodel_connect` function takes a `<target>` string formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success.
+The `coremodel_connect` function takes `<void **priv>` to store an instance of coremodel state and a `<target>`string
+formatted as `"ip:port"` for example "10.10.0.3:1900" and returns 0 on success.
 The IP to use with CoreModel is the services IP of the VM and the port is 1900. You can find the services IP in the Connect tab of the VM.
+The coremodel_disconnect requries the pointer `<void *priv>` to the state for a given instance of coremodel to disconnect from the network and free the state.
 
 ```c
 /* Connect to a VM. */
-int coremodel_connect(const char *target);
+int coremodel_connect(void **priv, const char *target);
 
 /* Close connection to a VM. */
-void coremodel_disconnect(void);
+void coremodel_disconnect(void *priv);
 ```
 
 ### Main Loop
 
 The `coremodel_mainloop` helper function provides a simple implementation of the device model main loop.
 Primarily the main loop handles processing the connection send and receive between the device model and the VM interface.
-`coremodel_mainloop` takes the parameter `usec` setting how much time to spend in the loop. The value of `usec` is specified in microseconds and if set to -1 will run indefinitely.
+`coremodel_mainloop` takes the parameters `<void *priv>` which is the state of the coremodel instance and `usec` setting how much time to spend in the loop.
+The value of `usec` is specified in microseconds and if set to -1 the main loop will run indefinitely.
 The main loop will return an error flag of 0 on success. Helper function `coremodel_mainloop` wraps the usage of the file descriptor functions.
 
 ```c
-int coremodel_mainloop(long long usec);
+int coremodel_mainloop(void *priv, long long usec);
 ```
 
 ### File Descriptor
@@ -105,7 +108,7 @@ typedef struct {
     char *name; /* name used to attach to the device */
     unsigned num; /* number of chip selects (SPI) or pins (GPIO) */
 } coremodel_device_list_t;
-coremodel_device_list_t *coremodel_list(void);
+coremodel_device_list_t *coremodel_list(void *priv);
 
 /* Frees a device list */
 void coremodel_free_list(coremodel_device_list_t *list);
@@ -113,11 +116,11 @@ void coremodel_free_list(coremodel_device_list_t *list);
 
 ### Attach Interface
 
-All attach functions require a correct `<name>` be provided to generate a `handle` for the VMs interface.
+All attach functions require the pointer to the coremodel instance `<priv>` and the a correct `<name>` be provided to generate a `handle` for the VMs interface.
 The correct name can be retrieved from device list.
 A proper `<func>` data structure for the specific interface is required.
 Any attach function will return `NULL` on failure.
-If the device model being attached to one of the interfaces does not need any independent state structure or specific value for operation then NULL can be provided to `<priv>`.
+If the device model being attached to one of the interfaces does not need any independent state structure or specific value for operation then NULL can be provided to `<ifpriv>`.
 
 ## UART
 
@@ -147,7 +150,7 @@ Stub functions for `brk` and `rxrdy` can be provided if they are not required fo
 Attach to a virtual UART and returns the handle.
 
 ```c
-void *coremodel_attach_uart(const char *name, const coremodel_uart_func_t *func, void *priv);
+void *coremodel_attach_uart(void *priv, const char *name, const coremodel_uart_func_t *func, void *ifpriv);
 ```
 
 ### UART RX
@@ -207,7 +210,7 @@ Depending on the VM there could already be other devices on the bus and those ad
 #define COREMODEL_I2C_START_ACK 0x0001  /* device must ACK all starts */
 #define COREMODEL_I2C_WRITE_ACK 0x0002  /* device must ACK all writes */
 
-void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv, uint16_t flags);
+void *coremodel_attach_i2c(void *priv, const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *ifpriv, uint16_t flags);
 ```
 
 ### I2C Push Read
@@ -257,7 +260,7 @@ VMs could have devices already on the SPI bus and their chip select index can no
 ```c
 #define COREMODEL_SPI_BLOCK     0x0001  /* device must handle >1 byte transfers */
 
-void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
+void *coremodel_attach_spi(void *priv, const char *name, unsigned csel, const coremodel_spi_func_t *func, void *ifpriv, uint16_t flags);
 ```
 
 ### SPI Ready
@@ -314,7 +317,7 @@ typedef struct {
 Attach a device to a virtual CAN bus.
 
 ```c
-void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, void *priv);
+void *coremodel_attach_can(void *priv, const char *name, const coremodel_can_func_t *func, void *ifpriv);
 ```
 
 ### CAN RX
@@ -354,7 +357,7 @@ typedef struct {
 Attach to a specified `<pin>` index in the bank of GPIO pins.
 
 ```c
-void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv);
+void *coremodel_attach_gpio(void *priv, const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *ifpriv);
 ```
 
 ### GPIO Set
@@ -400,7 +403,7 @@ VMs could have devices already on the USB bus and the port index those device ar
 #define USB_SPEED_FULL          1
 #define USB_SPEED_HIGH          2
 #define USB_SPEED_SUPER         3
-void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed);
+void *coremodel_attach_usbh(void *priv, const char *name, unsigned port, const coremodel_usbh_func_t *func, void *ifpriv, unsigned speed);
 ```
 
 ### USBH Ready
@@ -409,4 +412,182 @@ Unstall a stalled virtual USB interface end point `<ep>` with the token `<tkn>` 
 
 ```c
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
+```
+
+# Python Wrapper
+
+The coremodel.py module uses the libcoremodel.so library that is built using the default Makefile.
+The python wrapper abstracts the c library and necessary type conversions to make it easier to use in a more pyhonic object oriented manner.
+The coremodel module allows each coremodel instance and device to be its own object.
+
+## CoreModel Class
+
+The CoreModel class is the base class that manages a single network instance and all attached devices.
+Each CoreModel instance requires a `<name>` for the instance this is purely for the user to help keep track of multiple instances.
+Cormodel connection is handled on initialization and uses the ip `<address>` and `<port>` to establish a connection.
+Disconnecting an instance will happen automatically from the CoreModel class `__del__` method.
+CoreModel uses python ctypes to load libcoremodel.so from `<libpath>` location.
+
+```python
+cm = CoreModel(name, address, port, libpath)
+```
+
+CoreModel class provides a single attach function that takes a device `<obj>` to be attached.
+This attach function handles all coremodel device types.
+The attached devices will automatically detach from the CoreModel class in `__del__` method if they are not detached manually.
+
+```python
+cm.attach(obj)
+cm.detach(obj)
+```
+
+CoreModel class has two ways to use the mainloop, the first would be it directly.
+The `cycle_time` instance attribute is used as the `<usec>` parameter for the mainloop.
+
+```python
+cm.cycle_time = 100000
+cm.mainloop()
+```
+
+The other way to use the main loop is to kick off an independent thread using the `start` method.
+CoreModel class inherits `threading.Thread` and has a basic `run` method implemented.
+Stopping the thread from running there is a `stop_event` instance attribute that holds a `threading.Event` to signal the thread to return allowing it to be joined.
+
+```python
+cm.cycle_time = 100000
+
+cm.start()
+
+for i in range(5):
+    time.sleep(1)
+
+cm.stop_event.set()
+cm.join()
+```
+
+## CoreModel Device Classes
+
+With the CoreModel module each supported virtual bus has their own device class that contains the base structure and methods for a given device.
+These device classes will be used as a base class for a given device model. Because the CoreModel module wrapps the coremodel library and requires type conversions,
+functions that will be called by coremodel must match their base class naming convention replacing their place holder methods.
+This would include read/write or xfer functions, for example `class I2C0(CoreModelI2C)` will need to define start/stop write/read methods with the necessary device code.
+The instance of the object is handled as the functions `<ifpriv>` in CoreModel that is passed on attach allowing the `self` of the object to be maintained,
+this maintains that each object can handle the devices state normally through using `self`.
+Coremodel functions that are provided by the library like `coremodel_uart_rx` have their names shortened to just `rx` and get their method populated during attach.
+This allows each object to call the appropriate method directly from the object e.g. `uart.rx(byte_data)` to send data to the controller.
+If a function is not needed like `uart.rxrdy` it does not need to be defined in the child class as the parent populates a stub function.
+
+Python examples for coremodel can be found in their respective example folder along side the c examples.
+
+The following are basic device classes using the CoreModel device class as the base class.
+
+### CoreModelI2C
+
+```python
+class I2C(CoreModelI2C):
+    def __init__(self, busname, address, devname):
+        super().__init__(busname = busname, address = address)
+
+    def start(self):
+        print("start")
+        return 1
+
+    def write(self, data):
+        return len(data)
+
+    def read(self, data):
+        return len(data)
+
+    def stop(self):
+        print("stop")
+
+# added by coremodel during attach
+i2c.ready()
+```
+
+### CoreModelUart
+
+
+```python
+class Uart(CoreModelUart):
+    def __init__(self, busname):
+        super().__init__(busname = busname)
+
+    def tx(self, data):
+        print(data.decode("utf-8"), end = "")
+        return len(data)
+
+    def rxrdy(self):
+        pass
+
+    def brk(self):
+        pass
+
+# added by coremodel during attach
+uart.rx(data)
+```
+
+### CoreModelSpi
+
+```python
+class Spi(CoreModelSpi):
+    def __init__(self, busname, cs, devname):
+        super().__init__(busname = busname, cs = cs)
+        self.devname = devname
+
+    def cs(self, csel):
+        print("cs", csel)
+
+    def xfr(self, wrdata, rddata):
+        return len(rddata)
+
+# added by coremodel during attach
+spi.ready()
+```
+
+### CoreModelGpio
+
+```python
+class Gpio(CoreModelGpio):
+    def __init__(self, busname, pin):
+        super().__init__(busname = busname, pin = pin)
+
+    def notify(self, mvolt):
+        pass
+
+# added by coremodel during attach
+gpio.set(driven, mvolt)
+```
+
+### CoreModelUsbh
+
+```python
+class Usbh(CoreModelUsbh):
+    def __init__(self, busname, port, speed):
+        super().__init__(busname = busname, port = port, speed = speed)
+
+    def rst(self):
+        pass
+
+    def xfr(self, dev, ep, tkn, buf, size, end):
+        pass
+
+# added by coremodel during attach
+usbh.ready
+```
+
+### CoreModelCan
+
+```pass
+class Can(CoreModelCan):
+    def __init__(self, busname):
+        super().__init__(busname = busname)
+
+    def tx(self, ctrl, data):
+        dlen = CAN_DATALEN[(ctrl[0] & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT]
+        return CAN_ACK
+
+# added by coremodel during attach
+can.ready
+can.rx
 ```

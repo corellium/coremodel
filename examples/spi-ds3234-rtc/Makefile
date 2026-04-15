@@ -2,7 +2,7 @@
 
 HOSTCC = $(PREFIX)gcc
 HOSTAR = $(PREFIX)ar
-CFLAGS = -g -Wall -I$(LIBSRC)
+CFLAGS = -g -Wall -I$(LIBSRC) -ldl -Wl,--no-as-needed -lm -lpthread
 LIBSRC ?= ../../
 
 all: spi-ds3234

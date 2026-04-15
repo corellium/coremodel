@@ -43,34 +43,35 @@ static const coremodel_i2c_func_t test_i2c_func = {
     .write = test_i2c_write,
     .read = test_i2c_read,
     .stop = test_i2c_stop };
- 
+
 int main(int argc, char *argv[])
 {
     int res;
     void *handle;
+    void *cm;
 
     if(argc != 3) {
         printf("usage: coremodel-i2c <address[:port]> <i2c>\n");
         return 1;
     }
 
-    res = coremodel_connect(argv[1]);
+    res = coremodel_connect(&cm, argv[1]);
     if(res) {
         fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
         return 1;
     }
 
-    handle = coremodel_attach_i2c(argv[2], 0x42, &test_i2c_func, NULL, 0);
+    handle = coremodel_attach_i2c(cm, argv[2], 0x42, &test_i2c_func, NULL, 0);
     if(!handle) {
         fprintf(stderr, "error: failed to attach i2c.\n");
-        coremodel_disconnect();
+        coremodel_disconnect(cm);
         return 1;
     }
 
-    coremodel_mainloop(-1);
+    coremodel_mainloop(cm, -1);
 
     coremodel_detach(handle);
-    coremodel_disconnect();
+    coremodel_disconnect(cm);
 
     return 0;
 }

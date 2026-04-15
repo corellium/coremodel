@@ -23,11 +23,13 @@
 #include <stdint.h>
 #include <sys/select.h>
 
+#define COREMODEL_DFLT_PORT     1900
+
 /* Connect to a VM.
  *  target      string like "10.10.0.3:1900"
  * Returns error flag.
  */
-int coremodel_connect(const char *target);
+int coremodel_connect(void **cm, const char *target);
 
 /* Enumerates devices available in VM.
  * Returns invalid-terminated array of device structs. The array, as well as
@@ -44,7 +46,7 @@ typedef struct {
     char *name; /* name used to attach to the device */
     unsigned num; /* number of chip selects (SPI) or pins (GPIO) */
 } coremodel_device_list_t;
-coremodel_device_list_t *coremodel_list(void);
+coremodel_device_list_t *coremodel_list(void *priv);
 
 /* Frees a device list */
 void coremodel_free_list(coremodel_device_list_t *list);
@@ -63,11 +65,12 @@ typedef struct {
 } coremodel_uart_func_t;
 
 /* Attach to a virtual UART.
+ *  cm          coremodel instance
  *  name        name of the UART interface, depends on the VM
  *  func        set of function callbacks to attach
  *  priv        priv value to pass to each callback
  * Returns handle of UART, or NULL on failure. */
-void *coremodel_attach_uart(const char *name, const coremodel_uart_func_t *func, void *priv);
+void *coremodel_attach_uart(void *cm, const char *name, const coremodel_uart_func_t *func, void *priv);
 
 /* Try to push data into the virtual UART.
  *  uart        handle of UART
@@ -103,6 +106,7 @@ typedef struct {
 } coremodel_i2c_func_t;
 
 /* Attach to a virtual I2C bus.
+ *  cm          coremodel instance
  *  name        name of the I2C bus, depends on the VM
  *  addr        7-bit address to attach
  *  func        set of function callbacks to attach
@@ -111,7 +115,7 @@ typedef struct {
  * Returns handle of I2C interface, or NULL on failure. */
 #define COREMODEL_I2C_START_ACK 0x0001  /* device must ACK all starts */
 #define COREMODEL_I2C_WRITE_ACK 0x0002  /* device must ACK all writes */
-void *coremodel_attach_i2c(const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv, uint16_t flags);
+void *coremodel_attach_i2c(void *cm, const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *priv, uint16_t flags);
 
 /* Push unsolicited I2C READ data. Used to lower access latency.
  *  i2c         handle of I2C interface
@@ -138,6 +142,7 @@ typedef struct {
 } coremodel_spi_func_t;
 
 /* Attach to a virtual SPI bus.
+ *  cm          coremodel instance
  *  name        name of the SPI bus, depends on the VM
  *  csel        chip select index
  *  func        set of function callbacks to attach
@@ -145,7 +150,7 @@ typedef struct {
  *  flags       behavior flags of device
  * Returns handle of SPI interface, or NULL on failure. */
 #define COREMODEL_SPI_BLOCK     0x0001  /* device must handle >1 byte transfers */
-void *coremodel_attach_spi(const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
+void *coremodel_attach_spi(void *cm, const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
 
 /* Unstall a stalled interface (signal that CoreModel can once again call
  * func->xfr).
@@ -161,12 +166,13 @@ typedef struct {
 } coremodel_gpio_func_t;
 
 /* Attach to a virtual GPIO pin.
+ *  cm          coremodel instance
  *  name        name of the GPIO bank, depends on the VM
  *  pin         pin index within bank
  *  func        set of function callbacks to attach
  *  priv        priv value to pass to each callback
  * Returns handle of GPIO interface, or NULL on failure. */
-void *coremodel_attach_gpio(const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv);
+void *coremodel_attach_gpio(void *cm, const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv);
 
 /* Set a tri-state driver on a GPIO pin.
  *  pin         handle of GPIO interface
@@ -192,6 +198,7 @@ typedef struct {
 } coremodel_usbh_func_t;
 
 /* Attach to a virtual USB host.
+ *  cm          coremodel instance
  *  name        name of the USB host, depends on the VM
  *  port        USB port index
  *  func        set of function callbacks to attach
@@ -202,7 +209,7 @@ typedef struct {
 #define USB_SPEED_FULL          1
 #define USB_SPEED_HIGH          2
 #define USB_SPEED_SUPER         3
-void *coremodel_attach_usbh(const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed);
+void *coremodel_attach_usbh(void *cm, const char *name, unsigned port, const coremodel_usbh_func_t *func, void *priv, unsigned speed);
 
 /* Unstall a stalled interface (signal that CoreModel can once again call
  * func->xfr).
@@ -247,11 +254,18 @@ typedef struct {
 } coremodel_can_func_t;
 
 /* Attach to a virtual CAN bus.
+ *  cm          coremodel instance
  *  name        name of the CAN bus, depends on the VM
  *  func        set of function callbacks to attach
  *  priv        priv value to pass to each callback
  * Returns handle of CAN interface, or NULL on failure. */
-void *coremodel_attach_can(const char *name, const coremodel_can_func_t *func, void *priv);
+void *coremodel_attach_can(void *cm, const char *name, const coremodel_can_func_t *func, void *priv);
+
+/*
+ * Check if a CoreModel CAN endpoint would stall if RX was attempted
+ *  can         handle of CAN interface
+ */
+int coremodel_can_rx_busy(void *can);
 
 /* Send a packet to CAN bus.
  *  can         handle of CAN interface
@@ -268,31 +282,34 @@ void coremodel_can_ready(void *can);
 /* Other functions */
 
 /* Prepare fd_sets for select(2).
+ *  cm          coremodel instance
  *  nfds        current index of maximum fd in sets + 1
  *  readfds     readfds to update
  *  writefds    writefds to update
  * Returns new nfds.
  */
-int coremodel_preparefds(int nfds, fd_set *readfds, fd_set *writefds);
+int coremodel_preparefds(void *cm, int nfds, fd_set *readfds, fd_set *writefds);
 
 /* Process fd_sets after select(2).
+ *  cm          coremodel instance
  *  readfds     readfds to process
  *  writefds    writefds to process
  * Returns error flag.
  */
-int coremodel_processfds(fd_set *readfds, fd_set *writefds);
+int coremodel_processfds(void *cm, fd_set *readfds, fd_set *writefds);
 
 /* Simple implementation of a main loop.
+ *  cm          coremodel instance
  *  usec        time to spend in loop, in microseconds; negative means forever
  * Returns error flag.
  */
-int coremodel_mainloop(long long usec);
+int coremodel_mainloop(void *cm, long long usec);
 
 /* Detach any interface.
  *  handle      handle of UART/I2C/SPI/GPIO interface */
 void coremodel_detach(void *handle);
 
 /* Close connection to a VM. */
-void coremodel_disconnect(void);
+void coremodel_disconnect(void *cm);
 
 #endif

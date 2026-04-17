@@ -2,7 +2,13 @@
 
 HOSTCC = $(PREFIX)gcc
 HOSTAR = $(PREFIX)ar
-CFLAGS = -g -Wall -I$(LIBSRC) -ldl -Wl,--no-as-needed -lm -lpthread
+CFLAGS = -g -Wall -I$(LIBSRC) -ldl -lm -lpthread
+OS := $(shell uname -s)
+ifeq ($(OS),Darwin)
+	CFLAGS +=
+else
+	CFLAGS += -Wl,--no-as-needed
+endif
 LIBSRC ?= ../../
 
 all: can-cr3020 can-cansend

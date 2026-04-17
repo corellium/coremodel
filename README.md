@@ -3,7 +3,7 @@
 The CoreModel API provides over-the-internet support to attach remote peripheral models to a virtual Machine(VM) bus interfaces.
 There are multiple standard device interfaces supported including UART, I2C, SPI, CAN, GPIO, and USB Host.
 
-```
+```text
   -------------     ------------     -------------------
   | CoreModel | <-> | Internet | <-> | Virtual Machine |
   -------------     ------------     -------------------
@@ -14,14 +14,16 @@ There are multiple standard device interfaces supported including UART, I2C, SPI
 Not all machine types support CoreModel API interface as they were built before CoreModel was implemented.
 The following machines have been updated for CoreModel support.
 
-| Interface | I.MX93 | I.MX8 | RPI4B | STM32 | S32K3 |
-| :-------: | :----: | :---: | :---: | :---: | :---: |
-| GPIO      | x      | x     | x     | x     | x     |
-| UART      | x      | x     | x     | x     | x     |
-| I2C       | x      | x     | x     | x     | x     |
-| SPI       | x      | x     | x     | x     | x     |
-| CAN       | x      | x     |       |       | x     |
-| USBH      |        |       | x     |       |       |
+| Interface | I.MX93 | I.MX8 | RD-1AE | RPI4B | RPI5 | STM32 | S32K3 |
+| :-------: | :----: | :---: | :----: | :---: | :--: | :---: | :---: |
+| GPIO      | x      | x     |        | x     | x    | x     | x     |
+| UART      | x      | x     | x      | x     | x    | x     | x     |
+| I2C       | x      | x     |        | x     | x    | x     | x     |
+| SPI       | x      | x     |        | x     | x    | x     | x     |
+| CAN       | x      | x     |        |       |      |       | x     |
+| USBH      |        |       | x      | x     |      |       |       |
+
+Additionally, the following models have support for CoreModel access to serial ports but do not have full CoreModel support: Corstone-1000, Cortex-R52 System, Cortex-R82 System
 
 New machine types will support CoreModel API interface.
 

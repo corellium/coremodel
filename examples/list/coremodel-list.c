@@ -14,9 +14,9 @@ static const char * const type_string[] = {
 
 int main(int argc, char *argv[])
 {
-    coremodel_device_list_t *list;
+    coremodel_device_list_t *list, *sublist;
     void *cm;
-    unsigned idx;
+    unsigned idx, subidx;
     int res;
 
     if(argc != 2) {
@@ -31,17 +31,26 @@ int main(int argc, char *argv[])
     }
 
     list = coremodel_list(cm);
-
-    coremodel_disconnect(cm);
-
     if(!list) {
+        coremodel_disconnect(cm);
         fprintf(stderr, "error: failed to list devices.\n");
         return 1;
     }
 
-    for(idx=0; list[idx].type!=COREMODEL_INVALID; idx++)
+    for(idx=0; list[idx].type!=COREMODEL_INVALID; idx++) {
         printf("%2d  %-7s %-11s %d\n", idx, type_string[list[idx].type], list[idx].name, list[idx].num);
+        if(list[idx].type == COREMODEL_SPI || list[idx].type == COREMODEL_GPIO) {
+            sublist = coremodel_list_subdevices(cm, list[idx].type, list[idx].name);
+            if(sublist) {
+                for(subidx=0; sublist[subidx].type!=COREMODEL_INVALID; subidx++)
+                    if(sublist[subidx].name[0])
+                        printf("            %-11s %d\n", sublist[subidx].name, sublist[subidx].num);
+                coremodel_free_list(sublist);
+            }
+        }
+    }
 
     coremodel_free_list(list);
+    coremodel_disconnect(cm);
     return 0;
 }

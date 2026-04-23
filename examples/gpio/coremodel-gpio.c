@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     void *cm;
 
     if(argc < 3) {
-        printf("usage: coremodel-gpio <address[:port]> <gpio0> [...]\n");
+        printf("usage: coremodel-gpio <address[:port]> {<gpio0>|+<gpioname0>} [...]\n");
         return 1;
     }
 
@@ -42,9 +42,12 @@ int main(int argc, char *argv[])
     }
 
     for(idx=0; idx<num; idx++) {
-        handle = coremodel_attach_gpio(cm, argv[2], gpios[idx], &test_gpio_func, &gpios[idx]);
+        if(argv[3 + idx][0] == '+')
+            handle = coremodel_attach_gpio_name(cm, argv[2], argv[3 + idx] + 1, &test_gpio_func, &gpios[idx]);
+        else
+            handle = coremodel_attach_gpio(cm, argv[2], gpios[idx], &test_gpio_func, &gpios[idx]);
         if(!handle) {
-            fprintf(stderr, "error: failed to attach gpio %d.\n", gpios[idx]);
+            fprintf(stderr, "error: failed to attach gpio %s.\n", argv[3 + idx]);
             coremodel_disconnect(cm);
             return 1;
         }

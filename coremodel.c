@@ -92,7 +92,7 @@ struct coremodel_packet {
 #define PKT_CAN_SET_ACK         0x05    /* set filter of packets that will auto-ACK */
 
 #define RX_BUF                  4096
-#define MAX_PKT                 1024
+#define MAX_PKT                 2048
 
 struct coremodel {
     int fd;
@@ -110,6 +110,7 @@ struct coremodel {
 
     coremodel_device_list_t *device_list;
     unsigned device_list_size;
+    struct coremodel_packet *device_list_pkt;
 
     unsigned query;
 
@@ -323,7 +324,7 @@ coremodel_device_list_t *coremodel_list(void *priv)
     coremodel_device_list_t *res;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
-    if(cm->query ) {
+    if(cm->query) {
         pthread_mutex_unlock(&cm->coremodel_mutex);
         return NULL;
     }
@@ -342,6 +343,50 @@ coremodel_device_list_t *coremodel_list(void *priv)
     res = cm->device_list;
     cm->device_list = NULL;
     cm->device_list_size = 0;
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+
+    return res;
+}
+
+coremodel_device_list_t *coremodel_list_subdevices(void *priv, int type, const char *name)
+{
+    struct coremodel *cm = priv;
+    unsigned nlen = strlen(name);
+    struct coremodel_packet *pkt;
+    coremodel_device_list_t *res;
+
+    pkt = alloca(sizeof(*pkt) + 4 + nlen);
+    memset(pkt, 0, sizeof(*pkt));
+    pkt->len = 12 + nlen;
+    pkt->conn = CONN_QUERY;
+    pkt->pkt = PKT_QUERY_REQ_LIST;
+    pkt->hflag = 0x8000;
+    *(uint16_t *)pkt->data = type;
+    *(uint16_t *)(pkt->data + 2) = nlen;
+    memcpy(pkt->data + 4, name, nlen);
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    if(cm->query) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
+        return NULL;
+    }
+    if(coremodel_push_packet(cm, pkt, NULL)) {
+        pthread_mutex_unlock(&cm->coremodel_mutex);
+        return NULL;
+    }
+    cm->query = 1;
+    cm->device_list_pkt = pkt;
+
+    if(coremodel_mainloop_int(cm, -1, 1)) {
+        coremodel_free_list(cm->device_list);
+        cm->device_list = NULL;
+        cm->query = 0;
+    }
+
+    res = cm->device_list;
+    cm->device_list = NULL;
+    cm->device_list_size = 0;
+    cm->device_list_pkt = NULL;
     pthread_mutex_unlock(&cm->coremodel_mutex);
 
     return res;
@@ -373,7 +418,7 @@ static int coremodel_process_list_response(void *priv, struct coremodel_packet *
     }
 
     len = pkt->len - 8;
-    base = pkt->hflag;
+    base = pkt->hflag & 0x7FFF;
     for(offs=0,num=base; offs<len; offs+=step,num++) {
         ptr = pkt->data + offs;
         step = (11 + *(uint16_t *)(ptr + 2)) & ~3;
@@ -407,16 +452,20 @@ static int coremodel_process_list_response(void *priv, struct coremodel_packet *
     }
     cm->device_list[num].type = COREMODEL_INVALID;
 
+    if(cm->device_list_pkt) {
+        cm->device_list_pkt->hflag = num | 0x8000;
+        return coremodel_push_packet(cm, cm->device_list_pkt, NULL);
+    }
     npkt.hflag = num;
     return coremodel_push_packet(cm, &npkt, NULL);
 }
 
-static void *coremodel_attach_int(void *priv, unsigned type, const char *name, unsigned addr, const void *func, void *ifpriv, uint16_t flags)
+static void *coremodel_attach_int(void *priv, unsigned type, const char *name, unsigned addr, const char *subname, const void *func, void *ifpriv, uint16_t flags)
 {
     struct coremodel *cm = priv;
     struct coremodel_if *cif;
     struct coremodel_packet *pkt;
-    unsigned nlen = strlen(name);
+    unsigned nlen = strlen(name), snlen = subname ? strlen(subname) : 0;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
     if(cm->query) {
@@ -430,16 +479,31 @@ static void *coremodel_attach_int(void *priv, unsigned type, const char *name, u
         return NULL;
     }
 
-    pkt = alloca(sizeof(*pkt) + 8 + nlen);
-    memset(pkt, 0, sizeof(*pkt));
-    pkt->len = 16 + nlen;
-    pkt->conn = CONN_QUERY;
-    pkt->pkt = PKT_QUERY_REQ_CONN;
-    pkt->hflag = flags;
-    *(uint16_t *)pkt->data = type;
-    *(uint16_t *)(pkt->data + 2) = nlen;
-    *(uint32_t *)(pkt->data + 4) = addr;
-    memcpy(pkt->data + 8, name, nlen);
+    if(subname) {
+        pkt = alloca(sizeof(*pkt) + 9 + nlen + snlen);
+        memset(pkt, 0, sizeof(*pkt));
+        pkt->len = 17 + nlen + snlen;
+        pkt->conn = CONN_QUERY;
+        pkt->pkt = PKT_QUERY_REQ_CONN;
+        pkt->hflag = flags | 0x8000u;
+        *(uint16_t *)pkt->data = type;
+        *(uint16_t *)(pkt->data + 2) = 1 + nlen + snlen;
+        *(uint32_t *)(pkt->data + 4) = addr;
+        memcpy(pkt->data + 8, name, nlen);
+        pkt->data[8 + nlen] = 0;
+        memcpy(pkt->data + 9 + nlen, subname, snlen);
+    } else {
+        pkt = alloca(sizeof(*pkt) + 8 + nlen);
+        memset(pkt, 0, sizeof(*pkt));
+        pkt->len = 16 + nlen;
+        pkt->conn = CONN_QUERY;
+        pkt->pkt = PKT_QUERY_REQ_CONN;
+        pkt->hflag = flags;
+        *(uint16_t *)pkt->data = type;
+        *(uint16_t *)(pkt->data + 2) = nlen;
+        *(uint32_t *)(pkt->data + 4) = addr;
+        memcpy(pkt->data + 8, name, nlen);
+    }
     if(coremodel_push_packet(cm, pkt, NULL)) {
         free(cif);
         pthread_mutex_unlock(&cm->coremodel_mutex);
@@ -491,27 +555,35 @@ static int coremodel_process_conn_response(void *priv, struct coremodel_packet *
 
 void *coremodel_attach_uart(void *priv, const char *name, const coremodel_uart_func_t *func, void *ifpriv)
 {
-    return coremodel_attach_int(priv, COREMODEL_UART, name, 0, func, ifpriv, 0);
+    return coremodel_attach_int(priv, COREMODEL_UART, name, 0, NULL, func, ifpriv, 0);
 }
 void *coremodel_attach_i2c(void *priv, const char *name, uint8_t addr, const coremodel_i2c_func_t *func, void *ifpriv, uint16_t flags)
 {
-    return coremodel_attach_int(priv, COREMODEL_I2C, name, addr, func, ifpriv, flags);
+    return coremodel_attach_int(priv, COREMODEL_I2C, name, addr, NULL, func, ifpriv, flags);
 }
 void *coremodel_attach_spi(void *priv, const char *name, unsigned csel, const coremodel_spi_func_t *func, void *ifpriv, uint16_t flags)
 {
-    return coremodel_attach_int(priv, COREMODEL_SPI, name, csel, func, ifpriv, flags);
+    return coremodel_attach_int(priv, COREMODEL_SPI, name, csel, NULL, func, ifpriv, flags);
+}
+void *coremodel_attach_spi_name(void *priv, const char *name, const char *cselname, const coremodel_spi_func_t *func, void *ifpriv, uint16_t flags)
+{
+    return coremodel_attach_int(priv, COREMODEL_SPI, name, 0, cselname, func, ifpriv, flags);
 }
 void *coremodel_attach_gpio(void *priv, const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *ifpriv)
 {
-    return coremodel_attach_int(priv, COREMODEL_GPIO, name, pin, func, ifpriv, 0);
+    return coremodel_attach_int(priv, COREMODEL_GPIO, name, pin, NULL, func, ifpriv, 0);
+}
+void *coremodel_attach_gpio_name(void *priv, const char *name, const char *pinname, const coremodel_gpio_func_t *func, void *ifpriv)
+{
+    return coremodel_attach_int(priv, COREMODEL_GPIO, name, 0, pinname, func, ifpriv, 0);
 }
 void *coremodel_attach_usbh(void *priv, const char *name, unsigned port, const coremodel_usbh_func_t *func, void *ifpriv, unsigned speed)
 {
-    return coremodel_attach_int(priv, COREMODEL_USBH, name, port, func, ifpriv, speed);
+    return coremodel_attach_int(priv, COREMODEL_USBH, name, port, NULL, func, ifpriv, speed);
 }
 void *coremodel_attach_can(void *priv, const char *name, const coremodel_can_func_t *func, void *ifpriv)
 {
-    return coremodel_attach_int(priv, COREMODEL_CAN, name, 0, func, ifpriv, 0);
+    return coremodel_attach_int(priv, COREMODEL_CAN, name, 0, NULL, func, ifpriv, 0);
 }
 
 static void coremodel_ready_int(void *handle)

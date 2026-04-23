@@ -1,7 +1,7 @@
 /*
  *  CoreModel C API
  *
- *  Copyright Corellium 2022-2023
+ *  Copyright Corellium 2022-2026
  *  SPDX-License-Identifier: Apache-2.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -44,9 +44,14 @@ int coremodel_connect(void **cm, const char *target);
 typedef struct {
     int type; /* one of COREMODEL_* constants */
     char *name; /* name used to attach to the device */
-    unsigned num; /* number of chip selects (SPI) or pins (GPIO) */
+    unsigned num; /* number of subdevices: chip selects (SPI) or pins (GPIO) */
 } coremodel_device_list_t;
 coremodel_device_list_t *coremodel_list(void *priv);
+
+/* Enumerates subdevices (SPI chip selects, GPIO pins) of a given device in a VM.
+ * Returns same format as coremodel_list, except num in the returned structures is the
+   subdevice index. */
+coremodel_device_list_t *coremodel_list_subdevices(void *priv, int type, const char *name);
 
 /* Frees a device list */
 void coremodel_free_list(coremodel_device_list_t *list);
@@ -152,6 +157,16 @@ typedef struct {
 #define COREMODEL_SPI_BLOCK     0x0001  /* device must handle >1 byte transfers */
 void *coremodel_attach_spi(void *cm, const char *name, unsigned csel, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
 
+/* Attach to a virtual SPI bus, selecting chip select by name.
+ *  cm          coremodel instance
+ *  name        name of the SPI bus, depends on the VM
+ *  cselname    chip select name
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ *  flags       behavior flags of device
+ * Returns handle of SPI interface, or NULL on failure. */
+void *coremodel_attach_spi_name(void *cm, const char *name, const char *cselname, const coremodel_spi_func_t *func, void *priv, uint16_t flags);
+
 /* Unstall a stalled interface (signal that CoreModel can once again call
  * func->xfr).
  *  spi         handle of SPI interface
@@ -173,6 +188,15 @@ typedef struct {
  *  priv        priv value to pass to each callback
  * Returns handle of GPIO interface, or NULL on failure. */
 void *coremodel_attach_gpio(void *cm, const char *name, unsigned pin, const coremodel_gpio_func_t *func, void *priv);
+
+/* Attach to a virtual GPIO pin, selecting pin by name.
+ *  cm          coremodel instance
+ *  name        name of the GPIO bank, depends on the VM
+ *  pinname     pin name
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ * Returns handle of GPIO interface, or NULL on failure. */
+void *coremodel_attach_gpio_name(void *cm, const char *name, const char *pinname, const coremodel_gpio_func_t *func, void *priv);
 
 /* Set a tri-state driver on a GPIO pin.
  *  pin         handle of GPIO interface

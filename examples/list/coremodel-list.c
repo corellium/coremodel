@@ -10,7 +10,8 @@ static const char * const type_string[] = {
     [ COREMODEL_SPI ]  = "spi",
     [ COREMODEL_GPIO ] = "gpio",
     [ COREMODEL_USBH ] = "usbh",
-    [ COREMODEL_CAN ] = "can" };
+    [ COREMODEL_CAN ] = "can",
+    [ COREMODEL_EVENT] = "event" };
 
 int main(int argc, char *argv[])
 {
@@ -39,7 +40,7 @@ int main(int argc, char *argv[])
 
     for(idx=0; list[idx].type!=COREMODEL_INVALID; idx++) {
         printf("%2d  %-7s %-11s %d\n", idx, type_string[list[idx].type], list[idx].name, list[idx].num);
-        if(list[idx].type == COREMODEL_SPI || list[idx].type == COREMODEL_GPIO) {
+        if(list[idx].type == COREMODEL_SPI || list[idx].type == COREMODEL_GPIO || list[idx].type == COREMODEL_EVENT) {
             sublist = coremodel_list_subdevices(cm, list[idx].type, list[idx].name);
             if(sublist) {
                 for(subidx=0; sublist[subidx].type!=COREMODEL_INVALID; subidx++)

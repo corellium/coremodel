@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     void *cm;
 
     if(argc < 3) {
-        printf("usage: coremodel-gpio <address[:port]> {<gpio0>|+<gpioname0>} [...]\n");
+        printf("usage: coremodel-gpio <address[:port]> <gpiodev> {<gpio0>|+<gpioname0>} [...]\n");
         return 1;
     }
 

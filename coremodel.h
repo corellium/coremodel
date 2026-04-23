@@ -40,6 +40,7 @@ int coremodel_connect(void **cm, const char *target);
 #define COREMODEL_GPIO          3
 #define COREMODEL_USBH          4
 #define COREMODEL_CAN           5
+#define COREMODEL_EVENT         7
 #define COREMODEL_INVALID       (-1)
 typedef struct {
     int type; /* one of COREMODEL_* constants */
@@ -335,5 +336,54 @@ void coremodel_detach(void *handle);
 
 /* Close connection to a VM. */
 void coremodel_disconnect(void *cm);
+
+/* Event system */
+
+typedef struct {
+    /* Called by CoreModel to update event state. */
+    void (*update)(void *priv, uint64_t data0, uint64_t data1, unsigned initial);
+    /* Called by CoreModel when atomic with response is requested. */
+    void (*atresp)(void *priv, uint64_t data0, uint64_t data1);
+} coremodel_event_func_t;
+
+/* Attach to an event, selected by name.
+ *  cm          coremodel instance
+ *  evtname     pin name
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ * Returns handle of event interface, or NULL on failure. */
+void *coremodel_attach_event_name(void *cm, const char *evtname, const coremodel_event_func_t *func, void *priv);
+
+/* Send a signal to an event.
+ *  evt         handle of event interface
+ *  data0/1     event data
+ *  chgonly     only signal event if data changed */
+void coremodel_event_signal(void *evt, uint64_t data0, uint64_t data1, unsigned chgonly);
+
+/* Send a signal to an event.
+ *  evt         handle of event interface
+ *  data0/1     event data
+ *  op          atomic opcode; if EVENT_OP_RESP is set, atresp will be called later with event data from before the atomic */
+#define EVENT_OP_XCHG                   0
+#define EVENT_OP_ADD                    1
+#define EVENT_OP_SUB                    2
+#define EVENT_OP_AND                    3
+#define EVENT_OP_OR                     4
+#define EVENT_OP_XOR                    5
+#define EVENT_OP_MIN                    6
+#define EVENT_OP_MAX                    7
+#define EVENT_OP_SUBMIN                 8
+#define EVENT_OP_RESP                   0x40
+void coremodel_event_atomic(void *evt, uint64_t data0, uint64_t data1, unsigned op);
+
+/* Set value of a wire-type event.
+ *  evt         handle of event interface
+ *  value       value to put on the wire: LOW, HIGH, LOW | PULSE (pulsed low then back high), HIGH | PULSE (pulsed high then back low), TOGGLE; also | FORCE to force event update */
+#define EVENT_WIRE_VALUE_LOW            0x0000
+#define EVENT_WIRE_VALUE_HIGH           0x0001
+#define EVENT_WIRE_VALUE_PULSE          0x0002
+#define EVENT_WIRE_VALUE_TOGGLE         0x4000
+#define EVENT_WIRE_VALUE_FORCE          0x8000
+void event_signal_wire(void *evt, unsigned val);
 
 #endif

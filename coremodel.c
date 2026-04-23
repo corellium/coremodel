@@ -91,6 +91,23 @@ struct coremodel_packet {
 #define PKT_CAN_SET_NNAK        0x04    /* set filter of packets that will not auto-NAK */
 #define PKT_CAN_SET_ACK         0x05    /* set filter of packets that will auto-ACK */
 
+/* packet types for event bus export */
+#define PKT_EVENT_UPDATE        0x00    /* VM to host: bflag: 0x00 for normal update, 0x01 for initial value notification, 0x02 for atomic response; data: u64 data[2] */
+#define PKT_EVENT_SIGNAL        0x01    /* host to VM: bflag: 0x00 for normal signal, 0x01 for signal with update only on change, 0x8x for atomic signal, 0xCx for atomic signal with atomic response; data: u64 data[2] */
+#define PKT_EVENT_WIRE          0x02    /* host to VM: hflag: [0] value, [1] pulse, [14] toggle, [15] force update */
+
+#define EVENT_UPDATE_NORMAL     0x00
+#define EVENT_UPDATE_INITIAL    0x01
+#define EVENT_UPDATE_ATOMIC     0x02
+#define EVENT_SIGNAL_ATOMIC     0x80
+#define EVENT_SIGNAL_ATRESP     0x40
+#define EVENT_SIGNAL_ATMASK     0x0F
+#define EVENT_SIGNAL_CHANGE     0x01
+#define EVENT_HWIRE_VALUE       0x0001
+#define EVENT_HWIRE_PULSE       0x0002
+#define EVENT_HWIRE_TOGGLE      0x4000
+#define EVENT_HWIRE_FORCE       0x8000
+
 #define RX_BUF                  4096
 #define MAX_PKT                 2048
 
@@ -135,6 +152,7 @@ struct coremodel {
             const coremodel_gpio_func_t *gpiof;
             const coremodel_usbh_func_t *usbhf;
             const coremodel_can_func_t *canf;
+            const coremodel_event_func_t *eventf;
         };
         void *priv;
         struct coremodel_rxbuf {
@@ -585,6 +603,10 @@ void *coremodel_attach_can(void *priv, const char *name, const coremodel_can_fun
 {
     return coremodel_attach_int(priv, COREMODEL_CAN, name, 0, NULL, func, ifpriv, 0);
 }
+void *coremodel_attach_event_name(void *priv, const char *evtname, const coremodel_event_func_t *func, void *ifpriv)
+{
+    return coremodel_attach_int(priv, COREMODEL_EVENT, "event", 0, evtname, func, ifpriv, 0);
+}
 
 static void coremodel_ready_int(void *handle)
 {
@@ -640,10 +662,13 @@ int coremodel_uart_rx(void *uart, unsigned len, uint8_t *data)
 {
     struct coremodel_if *cif = uart;
     struct coremodel_packet pkt = { .pkt = PKT_UART_RX };
-    struct coremodel *cm = cif->cm;
+    struct coremodel *cm;
 
+    if(!cif)
+        return 0;
+    cm = cif->cm;
     pthread_mutex_lock(&cm->coremodel_mutex);
-    if(!cif || !cif->cred) {
+    if(!cif->cred) {
         pthread_mutex_unlock(&cm->coremodel_mutex);
         return 0;
     }
@@ -753,10 +778,11 @@ int coremodel_i2c_push_read(void *i2c, unsigned len, uint8_t *data)
 {
     struct coremodel_if *cif = i2c;
     struct coremodel_packet pkt = { .pkt = PKT_I2C_DONE };
-    struct coremodel *cm = cif->cm;
+    struct coremodel *cm;
 
     if(!cif)
         return 0;
+    cm = cif->cm;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
     if(len > 255)
@@ -845,10 +871,11 @@ void coremodel_gpio_set(void *pin, unsigned drven, int mvolt)
 {
     struct coremodel_if *cif = pin;
     struct coremodel_packet pkt = { .len = 8, .pkt = PKT_GPIO_FORCE };
-    struct coremodel *cm = cif->cm;
+    struct coremodel *cm;
 
     if(!cif)
         return;
+    cm = cif->cm;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
     pkt.conn = cif->conn;
@@ -997,16 +1024,20 @@ int coremodel_can_rx_busy(void *can)
 int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data)
 {
     struct coremodel_if *cif = can;
-    struct coremodel *cm = cif->cm;
+    struct coremodel *cm;
     unsigned dlc, dlen;
     struct coremodel_packet pkt = { .pkt = PKT_CAN_RX };
     struct { uint64_t ctrl[2]; uint8_t data[2048]; } edata;
+
+    if(!cif)
+        return 1;
+    cm = cif->cm;
 
     dlc = (ctrl[0] & CAN_CTRL_DLC_MASK) >> CAN_CTRL_DLC_SHIFT;
     dlen = (dlc < 16) ? coremodel_can_datalen[dlc] : dlc + 1;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
-    if(!cif || cif->ebusy || (dlen && !data)){
+    if(cif->ebusy || (dlen && !data)){
         pthread_mutex_unlock(&cm->coremodel_mutex);
         return 1;
     }
@@ -1037,6 +1068,83 @@ void coremodel_can_ready(void *can)
     pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
+static int coremodel_advance_if_event(struct coremodel_if *cif, struct coremodel_packet *pkt)
+{
+    uint64_t *data;
+
+    switch(pkt->pkt) {
+    case PKT_EVENT_UPDATE:
+        data = (void *)(pkt + 1);
+        switch(pkt->bflag) {
+        case EVENT_UPDATE_NORMAL:
+        case EVENT_UPDATE_INITIAL:
+            if(cif->eventf->update && pkt->len >= 16)
+                cif->eventf->update(cif->priv, data[0], data[1], pkt->bflag == EVENT_UPDATE_INITIAL);
+            break;
+        case EVENT_UPDATE_ATOMIC:
+            if(cif->eventf->atresp && pkt->len >= 16)
+                cif->eventf->atresp(cif->priv, data[0], data[1]);
+        }
+        return 0;
+    }
+    return 0;
+}
+
+void coremodel_event_signal(void *evt, uint64_t data0, uint64_t data1, unsigned chgonly)
+{
+    struct coremodel_if *cif = evt;
+    struct coremodel *cm;
+    struct coremodel_packet pkt = { .len = 24, .pkt = PKT_EVENT_SIGNAL };
+    uint64_t data[2] = { data0, data1 };
+
+    if(!cif)
+        return;
+    cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    pkt.conn = cif->conn;
+    pkt.bflag = chgonly ? EVENT_SIGNAL_CHANGE : 0;
+
+    coremodel_push_packet(cif->cm, &pkt, data);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+}
+
+void coremodel_event_atomic(void *evt, uint64_t data0, uint64_t data1, unsigned op)
+{
+    struct coremodel_if *cif = evt;
+    struct coremodel *cm;
+    struct coremodel_packet pkt = { .len = 24, .pkt = PKT_EVENT_SIGNAL };
+    uint64_t data[2] = { data0, data1 };
+
+    if(!cif)
+        return;
+    cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    pkt.conn = cif->conn;
+    pkt.bflag = op | EVENT_SIGNAL_ATOMIC;
+
+    coremodel_push_packet(cif->cm, &pkt, data);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+}
+
+void event_signal_wire(void *evt, unsigned val)
+{
+    struct coremodel_if *cif = evt;
+    struct coremodel *cm;
+    struct coremodel_packet pkt = { .len = 8, .pkt = PKT_EVENT_SIGNAL, .hflag = val };
+
+    if(!cif)
+        return;
+    cm = cif->cm;
+
+    pthread_mutex_lock(&cm->coremodel_mutex);
+    pkt.conn = cif->conn;
+
+    coremodel_push_packet(cif->cm, &pkt, NULL);
+    pthread_mutex_unlock(&cm->coremodel_mutex);
+}
+
 static void coremodel_advance_if(struct coremodel_if *cif)
 {
     struct coremodel_rxbuf *rxb, **prxb;
@@ -1062,6 +1170,9 @@ static void coremodel_advance_if(struct coremodel_if *cif)
             break;
         case COREMODEL_CAN:
             res = coremodel_advance_if_can(cif, &rxb->pkt);
+            break;
+        case COREMODEL_EVENT:
+            res = coremodel_advance_if_event(cif, &rxb->pkt);
             break;
         default:
             res = 0;
@@ -1322,10 +1433,11 @@ void coremodel_detach(void *handle)
     struct coremodel_packet pkt = { .len = 8, .conn = CONN_QUERY, .pkt = PKT_QUERY_REQ_DISC };
     struct coremodel_if *cif = handle, **pcif;
     struct coremodel_rxbuf *rxb;
-    struct coremodel *cm = cif->cm;
+    struct coremodel *cm;
 
     if(!cif)
         return;
+    cm = cif->cm;
 
     pthread_mutex_lock(&cm->coremodel_mutex);
     for(pcif=&cif->cm->ifs; *pcif; )

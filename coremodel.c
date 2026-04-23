@@ -50,9 +50,9 @@ struct coremodel_packet {
 };
 
 /* packet types for query connection: bflag = Dom0 connection ID */
-#define PKT_QUERY_REQ_LIST      0x00    /* list controllers, starting with index hflag */
-#define PKT_QUERY_RSP_LIST      0x01    /* list of controllers, starting with index hflag, data: { u16 type, u16 strlen, u32 num, u8 str[] } struct per controller */
-#define PKT_QUERY_REQ_CONN      0x02    /* connection request, data: one struct as above to connect to, where num = index of endpoint in controller, hflag: passed to connection type */
+#define PKT_QUERY_REQ_LIST      0x00    /* hflag.15 = 0: list controllers, starting with index hflag; hflag.15 = 1: list endpoints in a controller, starting with index hflag.14:0, data: { u16 type, u16 strlen, u8 str[] } */
+#define PKT_QUERY_RSP_LIST      0x01    /* list of controllers / endpoints, starting with index hflag, data: { u16 type, u16 strlen, u32 num, u8 str[] } struct per controller / endpoint */
+#define PKT_QUERY_REQ_CONN      0x02    /* connection request, data: one struct as above to connect to, where num = index of endpoint in controller, hflag.14:0: passed to connection type; if hflag.15 is set, str[] is "controllername\0endpointname" */
 #define PKT_QUERY_RSP_CONN      0x03    /* connection response: hflag: connection index (0xFFFF for failure), data: initial credit (uint32, optional) */
 #define PKT_QUERY_REQ_DISC      0x04    /* disconnection request, connection index hflag (no response) */
 

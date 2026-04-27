@@ -108,6 +108,9 @@ struct coremodel_packet {
 #define EVENT_HWIRE_TOGGLE      0x4000
 #define EVENT_HWIRE_FORCE       0x8000
 
+#define PKT_ETH_TX              0x00    /* packet from VM to host; bflag[0] send TX ack */
+#define PKT_ETH_RX              0x01    /* packet from host to VM */
+
 #define RX_BUF                  4096
 #define MAX_PKT                 2048
 
@@ -152,6 +155,7 @@ struct coremodel {
             const coremodel_gpio_func_t *gpiof;
             const coremodel_usbh_func_t *usbhf;
             const coremodel_can_func_t *canf;
+            const coremodel_eth_func_t *ethf;
             const coremodel_event_func_t *eventf;
         };
         void *priv;
@@ -602,6 +606,10 @@ void *coremodel_attach_usbh(void *priv, const char *name, unsigned port, const c
 void *coremodel_attach_can(void *priv, const char *name, const coremodel_can_func_t *func, void *ifpriv)
 {
     return coremodel_attach_int(priv, COREMODEL_CAN, name, 0, NULL, func, ifpriv, 0);
+}
+void *coremodel_attach_eth(void *priv, const char *name, const coremodel_eth_func_t *func, void *ifpriv)
+{
+    return coremodel_attach_int(priv, COREMODEL_ETH, name, 0, NULL, func, ifpriv, 0);
 }
 void *coremodel_attach_event_name(void *priv, const char *evtname, const coremodel_event_func_t *func, void *ifpriv)
 {
@@ -1145,6 +1153,49 @@ void event_signal_wire(void *evt, unsigned val)
     pthread_mutex_unlock(&cm->coremodel_mutex);
 }
 
+static int coremodel_advance_if_eth(struct coremodel_if *cif, struct coremodel_packet *pkt)
+{
+    int res;
+
+    switch(pkt->pkt) {
+    case PKT_ETH_TX:
+        if(cif->busy)
+            return 1;
+        if(cif->ethf->tx)
+            res = cif->ethf->tx(cif->priv, (pkt->len - 8) - cif->offs, pkt->data + cif->offs);
+        else
+            res = (pkt->len - 8) - cif->offs;
+        if(!res) {
+            cif->busy = 1;
+            break;
+        }
+        cif->offs += res;
+        if(cif->offs < pkt->len - 8)
+            return 1;
+        cif->offs = 0;
+        break;
+    }
+
+    return 0;
+}
+
+int coremodel_eth_rx(void *eth, unsigned len, uint8_t *data)
+{
+    struct coremodel_if *cif = eth;
+    struct coremodel_packet pkt = {
+        .len = sizeof(pkt) + len,
+        .pkt = PKT_ETH_RX,
+        .conn = cif->conn
+    };
+
+    return coremodel_push_packet(cif->cm, &pkt, data);
+}
+
+void coremodel_eth_ready(void *eth)
+{
+    coremodel_ready_int(eth);
+}
+
 static void coremodel_advance_if(struct coremodel_if *cif)
 {
     struct coremodel_rxbuf *rxb, **prxb;
@@ -1170,6 +1221,9 @@ static void coremodel_advance_if(struct coremodel_if *cif)
             break;
         case COREMODEL_CAN:
             res = coremodel_advance_if_can(cif, &rxb->pkt);
+            break;
+        case COREMODEL_ETH:
+            res = coremodel_advance_if_eth(cif, &rxb->pkt);
             break;
         case COREMODEL_EVENT:
             res = coremodel_advance_if_event(cif, &rxb->pkt);

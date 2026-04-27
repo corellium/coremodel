@@ -11,6 +11,7 @@ static const char * const type_string[] = {
     [ COREMODEL_GPIO ] = "gpio",
     [ COREMODEL_USBH ] = "usbh",
     [ COREMODEL_CAN ] = "can",
+    [ COREMODEL_ETH ] = "eth",
     [ COREMODEL_EVENT] = "event" };
 
 int main(int argc, char *argv[])

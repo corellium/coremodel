@@ -40,6 +40,7 @@ int coremodel_connect(void **cm, const char *target);
 #define COREMODEL_GPIO          3
 #define COREMODEL_USBH          4
 #define COREMODEL_CAN           5
+#define COREMODEL_ETH           6
 #define COREMODEL_EVENT         7
 #define COREMODEL_INVALID       (-1)
 typedef struct {
@@ -303,6 +304,28 @@ int coremodel_can_rx(void *can, uint64_t *ctrl, uint8_t *data);
  *  can         handle of CAN interface
  */
 void coremodel_can_ready(void *can);
+
+/* Ethernet */
+
+typedef struct {
+    int (*tx)(void *priv, unsigned len, uint8_t *data);
+} coremodel_eth_func_t;
+
+/* Attach to a virtual Ethernet.
+ *  cm          coremodel instance
+ *  name        name of the Ethernet interface, depends on the VM
+ *  func        set of function callbacks to attach
+ *  priv        priv value to pass to each callback
+ * Returns handle of ethernet, or NULL on failure */
+void *coremodel_attach_eth(void *cm, const char *name, const coremodel_eth_func_t *func, void *priv);
+
+/* Try to push data into the virtual ethernet
+ *  eth         handle of Ethernet
+ *  len         number of bytes to send to the Rx interface
+ *  data        data to send
+ * Returns 0 on success, 1 if bus is not available because previous packet hasn't been completed yet
+ */
+int coremodel_eth_rx(void *eth, unsigned len, uint8_t *data);
 
 /* Other functions */
 

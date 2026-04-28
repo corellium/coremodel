@@ -46,9 +46,8 @@ static int test_eth_tx(void *priv, unsigned len, uint8_t *data)
     fprintf(stderr, "ETH TX! %x\n", len);
     hexdump(data, data, len);
 
-    uint8_t d[32];
-    memset(d, 0xff, 32);
-    coremodel_eth_rx(handle, 32, d);
+    /* Simple loopback */
+    coremodel_eth_rx(handle, len, data);
     return len;
 }
 

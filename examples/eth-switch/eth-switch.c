@@ -20,7 +20,7 @@
 #define SWITCH_DEBUG_LUT    2
 #define SWITCH_DEBUG        (0)
 
-/* MACs will be purged if not sene for at least this long */
+/* MACs will be purged if not seen for at least this long */
 #define SWITCH_MAC_PURGE_SECONDS    60
 
 struct client {
@@ -38,7 +38,7 @@ struct client {
     int nme;
 };
 
-/* Global wiswitch ub state */
+/* Global switch state */
 struct switch_state {
     unsigned run;
     unsigned reload;

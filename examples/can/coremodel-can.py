@@ -1,3 +1,9 @@
+#
+# CoreModel CAN Example
+#
+# Copyright (c) 2022-2026 Corellium Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 from coremodel import *
 import time
 

@@ -1,3 +1,8 @@
+# CoreModel List Example
+#
+# Copyright (c) 2022-2026 Corellium Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 from coremodel import *
 
 if __name__ == "__main__":

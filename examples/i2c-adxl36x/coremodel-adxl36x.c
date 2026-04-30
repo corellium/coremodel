@@ -1,3 +1,10 @@
+/*
+ * CoreModel ADXL36X Example
+ *
+ * Copyright (c) 2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <unistd.h>

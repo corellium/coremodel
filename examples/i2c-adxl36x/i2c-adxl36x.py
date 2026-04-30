@@ -1,3 +1,8 @@
+#  CoreModel I2C ADXL36X Example
+#
+#  Copyright (c) 2026 Corellium Inc.
+#  SPDX-License-Identifier: Apache-2.0
+
 from coremodel import *
 from adxl36x_tick import *
 from adxl36x_deff import *

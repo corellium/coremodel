@@ -1,8 +1,8 @@
 /*
+ * CoreModel SPI RTC Example
  *
- * Copyright (C) 2025 Corellium LLC
- * All rights reserved.
- *
+ * Copyright (C) 2025-2026 Corellium LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>

@@ -1,3 +1,8 @@
+# CoreModel CAN Send Example
+#
+# Copyright Corellium 2025-2026
+# SPDX-License-Identifier: Apache-2.0
+
 from coremodel import *
 import time
 

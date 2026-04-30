@@ -1,3 +1,10 @@
+/*
+ * CoreModel ADXL36X Example
+ *
+ * Copyright (c) 2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <stddef.h>
 char *adi_adxl36x_reg_name(unsigned addr)
 {

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#  CoreModel PythonWrapper for C API
+#
+#  Copyright (c) 2022-2026 Corellium Inc.
+#  SPDX-License-Identifier: Apache-2.0
+
 from __future__ import print_function
 import ctypes
 import os, os.path

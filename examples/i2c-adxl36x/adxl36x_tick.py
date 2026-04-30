@@ -1,3 +1,8 @@
+#  CoreModel I2C ADXL36X Example
+#
+#  Copyright (c) 2026 Corellium Inc.
+#  SPDX-License-Identifier: Apache-2.0
+
 import threading
 import time
 from datetime import datetime

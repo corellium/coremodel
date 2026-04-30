@@ -1,3 +1,10 @@
+/*
+ * CoreModel Ethernet Switch Example
+ *
+ * Copyright (c) 2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <stdio.h>
 #include <stdint.h>
 

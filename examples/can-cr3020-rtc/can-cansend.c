@@ -1,3 +1,10 @@
+/*
+ * CoreModel CAN Send Example
+ *
+ * Copyright (c) 2022-2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>

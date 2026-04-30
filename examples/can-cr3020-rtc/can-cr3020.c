@@ -1,11 +1,11 @@
 /*
+ * CoreModel CAN RTC Example
  *
- * Copyright (C) 2025 Corellium LLC
- * All rights reserved.
- *
+ * Copyright (C) 2025-2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
- #include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <errno.h>

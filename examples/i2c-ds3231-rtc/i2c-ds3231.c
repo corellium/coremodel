@@ -1,8 +1,8 @@
 /*
- *
- * Copyright (C) 2025 Corellium LLC
+ * CoreModel I2C RTC Example
+ * 
+ * Copyright (C) 2025-2026 Corellium Inc.
  * All rights reserved.
- *
  */
 
 #include <stdio.h>

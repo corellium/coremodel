@@ -1,0 +1,70 @@
+/*
+ * CoreModel GPIO Example
+ *
+ * Copyright (c) 2022-2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+
+#include <coremodel.h>
+
+static void test_gpio_notify(void *priv, int mvolt)
+{
+    printf("GPIO[%d] = %d mV\n", *(int *)priv, mvolt);
+    fflush(stdout);
+}
+
+static const coremodel_gpio_func_t test_gpio_func = {
+    .notify = test_gpio_notify };
+
+int main(int argc, char *argv[])
+{
+    int res, num, idx, *gpios;
+    void *handle;
+    void *cm;
+
+    if(argc < 3) {
+        printf("usage: coremodel-gpio <address[:port]> <gpiodev> {<gpio0>|+<gpioname0>} [...]\n");
+        return 1;
+    }
+
+    num = argc - 3;
+    gpios = calloc(sizeof(int), num);
+    if(!gpios) {
+        fprintf(stderr, "error: out of memory.\n");
+        return 1;
+    }
+    for(idx=0; idx<num; idx++)
+        gpios[idx] = strtoul(argv[3 + idx], NULL, 0);
+
+
+    res = coremodel_connect(&cm, argv[1]);
+    if(res) {
+        fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
+        return 1;
+    }
+
+    for(idx=0; idx<num; idx++) {
+        if(argv[3 + idx][0] == '+')
+            handle = coremodel_attach_gpio_name(cm, argv[2], argv[3 + idx] + 1, &test_gpio_func, &gpios[idx]);
+        else
+            handle = coremodel_attach_gpio(cm, argv[2], gpios[idx], &test_gpio_func, &gpios[idx]);
+        if(!handle) {
+            fprintf(stderr, "error: failed to attach gpio %s.\n", argv[3 + idx]);
+            coremodel_disconnect(cm);
+            return 1;
+        }
+    }
+
+    coremodel_mainloop(cm, -1);
+
+    coremodel_detach(handle);
+    coremodel_disconnect(cm);
+    free(gpios);
+
+    return 0;
+}

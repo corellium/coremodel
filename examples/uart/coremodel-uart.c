@@ -1,0 +1,66 @@
+/*
+ * CoreModel UART Example
+ *
+ * Copyright (c) 2022-2026 Corellium Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+
+#include <coremodel.h>
+
+static int test_uart_tx(void *priv, unsigned len, uint8_t *data)
+{
+    unsigned idx;
+    for(idx=0; idx<len; idx++)
+        putchar(data[idx]);
+    fflush(stdout);
+    return len;
+}
+
+static void test_uart_brk(void *priv)
+{
+}
+
+static void test_uart_rxrdy(void *priv)
+{
+}
+
+static const coremodel_uart_func_t test_uart_func = {
+    .tx = test_uart_tx,
+    .brk = test_uart_brk,
+    .rxrdy = test_uart_rxrdy };
+
+int main(int argc, char *argv[])
+{
+    int res;
+    void *handle;
+    void *cm;
+
+    if(argc != 3) {
+        printf("usage: coremodel-uart <address[:port]> <uart>\n");
+        return 1;
+    }
+
+    res = coremodel_connect(&cm, argv[1]);
+    if(res) {
+        fprintf(stderr, "error: failed to connect: %s.\n", strerror(-res));
+        return 1;
+    }
+
+    handle = coremodel_attach_uart(cm, argv[2], &test_uart_func, NULL);
+    if(!handle) {
+        fprintf(stderr, "error: failed to attach UART.\n");
+        coremodel_disconnect(cm);
+        return 1;
+    }
+
+    coremodel_mainloop(cm, -1);
+
+    coremodel_detach(handle);
+    coremodel_disconnect(cm);
+
+    return 0;
+}

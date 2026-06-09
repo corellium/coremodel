@@ -22,6 +22,8 @@ The following machines have been updated for CoreModel support.
 | SPI       | x      | x     |        | x     | x    | x     | x     |
 | CAN       | x      | x     |        |       |      |       | x     |
 | USBH      |        |       | x      | x     |      |       |       |
+| ETH       | x      |       |        |       |      |       | x     |
+| EVENT     |        |       |        |       |      |       | x     |
 
 Additionally, the following models have support for CoreModel access to serial ports but do not have full CoreModel support: Corstone-1000, Cortex-R52 System, Cortex-R82 System
 
@@ -416,6 +418,110 @@ Unstall a stalled virtual USB interface end point `<ep>` with the token `<tkn>` 
 void coremodel_usbh_ready(void *usb, uint8_t ep, uint8_t tkn);
 ```
 
+## Ethernet
+
+The CoreModel ETH APIs provides the ability to detach a interface from the virtual switch within a CHARM project, allowing local capture and injection of arbitrary ethernet packets.
+
+The packet is a raw IEEE802.3 ethernet frame, without the trailing FCS.
+
+### Ethernet Data Structure
+
+```c
+typedef struct {
+    /* Called by CoreModel when the remote side has transmitted a packet */
+    int (*tx)(void *priv, unsigned len, uint8_t *data);
+    /* Called by CoreModel to unstall the RX interface */
+    void (*rxrdy)(void *priv);
+} coremodel_eth_func_t;
+```
+
+### Ethernet device attach
+
+Attach to the virtual ethernet controller `<name>`.
+
+```c
+void *coremodel_attach_eth(void *cm, const char *name, const coremodel_eth_func_t *func, void *priv);
+```
+
+### Ethernet data reception
+
+Call this function with the raw packet data the associated device will receive.
+
+```c
+int coremodel_eth_rx(void *eth, unsigned len, uint8_t *data);
+```
+
+## Event Bus
+
+The CoreModel Event Bus APIs provides the ability to listen for events from the VM, and send events to the VM.  Please see the [event bus](/charmsdk/reference/peripherals-and-buses/events) documentation for additional details.
+
+### Event Bus Data Structure
+
+```c
+typedef struct {
+    /* Called by CoreModel to update event state. */
+    void (*update)(void *priv, uint64_t data0, uint64_t data1, unsigned initial);
+    /* Called by CoreModel when atomic with response is requested. */
+    void (*atresp)(void *priv, uint64_t data0, uint64_t data1);
+} coremodel_event_func_t;
+```
+
+### Event Bus Attach
+
+Register interest in a specific named event.  The `update` function will be invoked when the event state changes.  The `atresp` function is called when a special "atomic" event is called.
+
+```c
+void *coremodel_attach_event_name(void *cm, const char *evtname, const coremodel_event_func_t *func, void *priv);
+```
+
+### Event Bus Signal
+
+Send a signal to an event handle.  `data0` and `data1` are opaque and must be properly formatted for the specific event type.  `chgonly` will only signal an event if the data has changed from the last time it was signaled.
+
+```c
+void coremodel_event_signal(void *evt, uint64_t data0, uint64_t data1, unsigned chgonly);
+```
+
+### Event Bus Atomic Signal
+
+Send an signal to an event handle that operates on the previous value.  If `EVENT_OP_RESP` is specified then the `atresp` callback will be invoked with the event data prior to this operation.
+
+```c
+#define EVENT_OP_XCHG                   0
+#define EVENT_OP_ADD                    1
+#define EVENT_OP_SUB                    2
+#define EVENT_OP_AND                    3
+#define EVENT_OP_OR                     4
+#define EVENT_OP_XOR                    5
+#define EVENT_OP_MIN                    6
+#define EVENT_OP_MAX                    7
+#define EVENT_OP_SUBMIN                 8
+#define EVENT_OP_RESP                   0x40
+void coremodel_event_atomic(void *evt, uint64_t data0, uint64_t data1, unsigned op);
+```
+
+### Event Bus Wire Signal
+
+Send a wire-type signal to an event handle.
+
+```c
+#define EVENT_WIRE_VALUE_LOW            0x0000
+#define EVENT_WIRE_VALUE_HIGH           0x0001
+#define EVENT_WIRE_VALUE_PULSE          0x0002
+#define EVENT_WIRE_VALUE_TOGGLE         0x4000
+#define EVENT_WIRE_VALUE_FORCE          0x8000
+void event_signal_wire(void *evt, unsigned val);
+```
+
+### Event Bus ADC Signal
+
+These events specify a voltage that is acted upon (ie "converted") by an Analog-Digital Converter (ADC).  The value is specified in microvolts, represented
+using a signed 32-bit integer packed into the `<data0>` field passed into `coremodel_event_signal()`.
+
+```c
+#define EVENT_ADC_DATA_MASK             (0xffffffffu)
+```
+
 # Python Wrapper
 
 The coremodel.py module uses the libcoremodel.so library that is built using the default Makefile.
@@ -592,4 +698,34 @@ class Can(CoreModelCan):
 # added by coremodel during attach
 can.ready
 can.rx
+```
+
+### CoreModelEth
+
+```pass
+Class Eth(CoreModelEth):
+    def __init__(self, busname):
+        super().__init__(busname = busname)
+
+    def tx(self, length, data):
+        pass
+
+# added by coremodel during attach
+eth.rxrdy
+eth.rx
+```
+
+### CoreModelEvent
+
+```pass
+class Event(CoreModelEvent):
+    def __init__(self,eventname):
+        super().__init__(eventname=eventname)
+
+    def update(self, data0, data1, initial):
+        print("event[{}] data0 {} data1 {} initial {}".format(self.name, data0, data1, initial))
+    def atresp(self, data0, data1):
+        print("atevent[{}] data0 {} data1 {} ".format(self.name, data0, data1))
+# added by coremodel during attach
+event.signal
 ```
